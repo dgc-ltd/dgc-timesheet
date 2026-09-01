@@ -427,14 +427,21 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+const SUPABASE_URL = "https://kvxixpkprviimrozkfgz.supabase.co";
+const SUPABASE_KEY = "sb_publishable_wIfFsbeoI-Oh220m4P0yOw_CSAhM6DI";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
 const DAY_NAMES = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const DEFAULT_SITES = ["Peel Breakwater", "Dandara - Ballasalla", "Living Hope", "Utmost", "NRV", "Minor Works"];
 
 let state = {
   operative: null,
-  currentDay: null, // ISO date string of day being edited
-  unlockedForEdit: false
+  currentUserId: null,
+  currentDay: null,
+  weekEntries: {}
 };
 
 function pad(n) { return n < 10 ? "0" + n : "" + n; }
@@ -450,30 +457,17 @@ function fmtLong(d) { return pad(d.getDate()) + "/" + pad(d.getMonth()+1) + "/" 
 
 function getMonday(d) {
   const date = new Date(d);
-  const day = (date.getDay() + 6) % 7; // 0 = Monday
+  const day = (date.getDay() + 6) % 7;
   date.setDate(date.getDate() - day);
   date.setHours(0,0,0,0);
   return date;
 }
 
-function storageKey(suffix) {
-  return "dgcTimesheet_" + suffix;
+function escapeHtml(s) {
+  return (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 }
 
-function opKey(name) {
-  return name.trim().toLowerCase().replace(/\s+/g, "_");
-}
-
-function usersKey() { return storageKey("users"); }
-
-function getUsers() {
-  const raw = localStorage.getItem(usersKey());
-  return raw ? JSON.parse(raw) : {};
-}
-
-function saveUsers(users) {
-  localStorage.setItem(usersKey(), JSON.stringify(users));
-}
+// ---------- Auth ----------
 
 function showLogin() {
   document.getElementById("signupOverlay").classList.add("hidden");
@@ -500,7 +494,13 @@ function signupFail(msg) {
   err.classList.remove("hidden");
 }
 
-function doSignup() {
+function loginFail(msg) {
+  const err = document.getElementById("loginError");
+  err.textContent = msg;
+  err.classList.remove("hidden");
+}
+
+async function doSignup() {
   const firstName = document.getElementById("signupFirstName").value.trim();
   const lastName = document.getElementById("signupLastName").value.trim();
   const email = document.getElementById("signupEmail").value.trim().toLowerCase();
@@ -509,132 +509,142 @@ function doSignup() {
 
   if (!firstName || !lastName || !email || !password) { signupFail("Please fill in every field."); return; }
   if (password !== password2) { signupFail("Passwords don't match."); return; }
+  if (password.length < 6) { signupFail("Password must be at least 6 characters."); return; }
 
-  const users = getUsers();
-  if (users[email]) { signupFail("An account with that email already exists."); return; }
+  const { data, error } = await sb.auth.signUp({
+    email, password,
+    options: { data: { first_name: firstName, last_name: lastName } }
+  });
 
-  users[email] = { firstName, lastName, email, password };
-  saveUsers(users);
+  if (error) { signupFail(error.message); return; }
+
+  if (data.session) {
+    document.getElementById("signupOverlay").classList.add("hidden");
+    state.operative = firstName + " " + lastName;
+    state.currentUserId = data.user.id;
+    init();
+    return;
+  }
 
   document.getElementById("loginUsername").value = email;
   document.getElementById("loginPassword").value = "";
   showLogin();
 }
 
-function doLogin() {
-  const username = document.getElementById("loginUsername").value.trim().toLowerCase();
+async function doLogin() {
+  const email = document.getElementById("loginUsername").value.trim().toLowerCase();
   const password = document.getElementById("loginPassword").value;
-  const errEl = document.getElementById("loginError");
-  const users = getUsers();
-  const user = users[username];
 
-  if (!user || user.password !== password) {
-    errEl.classList.remove("hidden");
-    return;
-  }
-  errEl.classList.add("hidden");
-  localStorage.setItem(storageKey("currentUser"), username);
-  state.operative = user.firstName + " " + user.lastName;
+  if (!email || !password) { loginFail("Enter your username and password."); return; }
+
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) { loginFail("Username or password is incorrect."); return; }
+
+  document.getElementById("loginError").classList.add("hidden");
+  const meta = data.user.user_metadata || {};
+  state.operative = (meta.first_name || "") + " " + (meta.last_name || "");
+  state.currentUserId = data.user.id;
   document.getElementById("loginOverlay").classList.add("hidden");
   init();
 }
 
-function forgotPassword() {
-  const username = document.getElementById("loginUsername").value.trim().toLowerCase();
+async function forgotPassword() {
+  const email = document.getElementById("loginUsername").value.trim().toLowerCase();
   const errEl = document.getElementById("loginError");
 
-  if (!username) {
+  if (!email) {
     errEl.textContent = "Type your username above first, then tap Forgot password.";
     errEl.classList.remove("hidden");
     return;
   }
 
-  const users = getUsers();
-  const user = users[username];
-  if (!user) {
-    errEl.textContent = "No account found for that username.";
-    errEl.classList.remove("hidden");
-    return;
-  }
+  const { error } = await sb.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin + window.location.pathname
+  });
 
-  errEl.classList.add("hidden");
-  const subject = "Your DGC Weekly Timesheet password";
-  const body = "Hi " + user.firstName + ",\n\nYour login details:\n\nUsername: " + user.email +
-    "\nPassword: " + user.password;
-  window.location.href = "mailto:" + encodeURIComponent(user.email) +
-    "?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body);
+  errEl.classList.remove("hidden");
+  errEl.textContent = error ? error.message : "Check your email for a link to reset your password.";
 }
 
-function logout() {
-  localStorage.removeItem(storageKey("currentUser"));
+async function logout() {
+  await sb.auth.signOut();
   state.operative = null;
+  state.currentUserId = null;
   document.getElementById("loginUsername").value = "";
   document.getElementById("loginPassword").value = "";
   showLogin();
 }
 
-function getWeekData() {
-  const key = storageKey("weeks_" + opKey(state.operative));
-  const raw = localStorage.getItem(key);
-  return raw ? JSON.parse(raw) : {};
+sb.auth.onAuthStateChange((event) => {
+  if (event === "PASSWORD_RECOVERY") {
+    const newPassword = prompt("Enter a new password:");
+    if (newPassword) {
+      sb.auth.updateUser({ password: newPassword }).then(({ error }) => {
+        alert(error ? "Could not update password: " + error.message : "Password updated. You're logged in.");
+      });
+    }
+  }
+});
+
+// ---------- Data ----------
+
+async function loadWeekEntries(monday) {
+  const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+  const { data, error } = await sb
+    .from("timesheet_entries")
+    .select("*")
+    .eq("user_id", state.currentUserId)
+    .gte("entry_date", isoDate(monday))
+    .lte("entry_date", isoDate(sunday));
+
+  state.weekEntries = {};
+  if (!error && data) {
+    data.forEach(row => { state.weekEntries[row.entry_date] = row; });
+  }
 }
 
-function saveWeekData(data) {
-  const key = storageKey("weeks_" + opKey(state.operative));
-  localStorage.setItem(key, JSON.stringify(data));
-}
-
-const DEFAULT_SITES = ["Peel Breakwater", "Dandara - Ballasalla", "Living Hope", "Utmost", "NRV", "Minor Works"];
-
-function getSiteHistory() {
-  const key = storageKey("sites_" + opKey(state.operative));
-  const raw = localStorage.getItem(key);
-  const hist = raw ? JSON.parse(raw) : {};
-  let changed = false;
-  DEFAULT_SITES.forEach(name => {
-    if (!(name in hist)) { hist[name] = 0; changed = true; }
-  });
-  if (changed) saveSiteHistory(hist);
+async function getSiteHistory() {
+  const hist = {};
+  DEFAULT_SITES.forEach(s => { hist[s] = 0; });
+  const { data } = await sb
+    .from("timesheet_entries")
+    .select("site")
+    .eq("user_id", state.currentUserId);
+  if (data) {
+    data.forEach(row => { hist[row.site] = (hist[row.site] || 0) + 1; });
+  }
   return hist;
 }
 
-function saveSiteHistory(hist) {
-  const key = storageKey("sites_" + opKey(state.operative));
-  localStorage.setItem(key, JSON.stringify(hist));
-}
-
-function bumpSite(name) {
-  const hist = getSiteHistory();
-  hist[name] = (hist[name] || 0) + 1;
-  saveSiteHistory(hist);
-}
+// ---------- UI flow ----------
 
 function init() {
   document.getElementById("headerSubText").textContent = state.operative;
   showWeek();
 }
 
-function showWeek() {
+async function showWeek() {
   document.getElementById("dayView").classList.add("hidden");
   document.getElementById("weekView").classList.remove("hidden");
   document.getElementById("backBtn").classList.add("hidden");
-  renderWeek();
+  await renderWeek();
 }
 
-function renderWeek() {
+async function renderWeek() {
   const today = new Date();
   const monday = getMonday(today);
   const friday = new Date(monday); friday.setDate(monday.getDate() + 4);
   document.getElementById("weekMeta").textContent = "Week ending " + fmtLong(friday);
 
-  const weekData = getWeekData();
+  await loadWeekEntries(monday);
+
   const tilesEl = document.getElementById("tiles");
   tilesEl.innerHTML = "";
 
   for (let i = 0; i < 7; i++) {
     const d = new Date(monday); d.setDate(monday.getDate() + i);
     const iso = isoDate(d);
-    const entry = weekData[iso];
+    const entry = state.weekEntries[iso];
     const btn = document.createElement("button");
     btn.className = "tile" + (entry ? " filled" : "") + (isoDate(d) === isoDate(today) ? " today" : "");
     btn.innerHTML = fmtShort(d) +
@@ -644,57 +654,43 @@ function renderWeek() {
   }
 }
 
-function escapeHtml(s) {
-  return (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-}
-
-function openDay(iso) {
+async function openDay(iso) {
   state.currentDay = iso;
-  const d = new Date(iso + "T00:00:00");
   document.getElementById("weekView").classList.add("hidden");
   document.getElementById("dayView").classList.remove("hidden");
   document.getElementById("backBtn").classList.remove("hidden");
 
-  populateSites();
+  const entry = state.weekEntries[iso];
+  await populateSites(entry);
 
-  const weekData = getWeekData();
-  const entry = weekData[iso];
   document.getElementById("newSiteField").classList.add("hidden");
   document.getElementById("newSiteInput").value = "";
-  document.getElementById("descInput").value = entry ? entry.desc : "";
-  document.getElementById("startInput").value = entry ? entry.start : "08:00";
-  document.getElementById("finishInput").value = entry ? entry.finish : "17:00";
-  document.getElementById("lunchInput").value = entry ? entry.lunch : 30;
-  document.getElementById("notesInput").value = entry ? entry.notes : "";
+  document.getElementById("descInput").value = entry ? (entry.description || "") : "";
+  document.getElementById("startInput").value = entry ? entry.start_time : "08:00";
+  document.getElementById("finishInput").value = entry ? entry.finish_time : "17:00";
+  document.getElementById("lunchInput").value = entry ? entry.lunch_mins : 30;
+  document.getElementById("notesInput").value = entry ? (entry.notes || "") : "";
 
+  recalcHours();
+}
+
+async function populateSites(entry) {
+  const hist = await getSiteHistory();
+  const names = Object.keys(hist).sort((a,b) => hist[b]-hist[a]);
+  const sel = document.getElementById("siteSelect");
+  sel.innerHTML = "";
+  names.forEach(n => {
+    const opt = document.createElement("option");
+    opt.value = n; opt.textContent = n;
+    sel.appendChild(opt);
+  });
   if (entry) {
-    const sel = document.getElementById("siteSelect");
     if (![...sel.options].some(o => o.value === entry.site)) {
       const opt = document.createElement("option");
       opt.value = entry.site; opt.textContent = entry.site;
       sel.insertBefore(opt, sel.firstChild);
     }
     sel.value = entry.site;
-  }
-
-  recalcHours();
-}
-
-function populateSites() {
-  const hist = getSiteHistory();
-  const names = Object.keys(hist).sort((a,b) => hist[b]-hist[a]);
-  const sel = document.getElementById("siteSelect");
-  sel.innerHTML = "";
-  if (names.length === 0) {
-    const opt = document.createElement("option");
-    opt.value = ""; opt.textContent = "No sites yet — add one below";
-    sel.appendChild(opt);
-  } else {
-    names.forEach(n => {
-      const opt = document.createElement("option");
-      opt.value = n; opt.textContent = n;
-      sel.appendChild(opt);
-    });
   }
 }
 
@@ -703,10 +699,7 @@ function showAddSite() {
   document.getElementById("newSiteInput").focus();
 }
 
-function onSiteChange() {
-  // no-op placeholder for future logic
-}
-
+function onSiteChange() {}
 
 function recalcHours() {
   const start = document.getElementById("startInput").value;
@@ -721,73 +714,56 @@ function recalcHours() {
     const [fh, fm] = finish.split(":").map(Number);
     let diff = (fh*60+fm) - (sh*60+sm);
     if (diff < 0) diff += 24*60;
-
-    // Worked hours = time on site minus the unpaid lunch break, exactly as entered.
     netMins = Math.max(0, diff - enteredLunch);
     hours = netMins / 60;
   }
 
   const wholeHours = Math.floor(netMins / 60);
   const remMins = Math.round(netMins % 60);
-  document.getElementById("hoursDisplay").textContent =
-    "Hours: " + wholeHours + "h " + remMins + "m";
-
+  document.getElementById("hoursDisplay").textContent = "Hours: " + wholeHours + "h " + remMins + "m";
   return hours;
 }
 
-function saveDay() {
+async function saveDay() {
   const newSite = document.getElementById("newSiteInput").value.trim();
   let site = newSite || document.getElementById("siteSelect").value;
   if (!site) { alert("Please choose or add a site."); return; }
 
-  bumpSite(site);
-
   const hours = recalcHours();
-  const entry = {
+  const saveBtn = document.getElementById("saveDayBtn");
+  saveBtn.disabled = true;
+
+  const { error } = await sb.from("timesheet_entries").upsert({
+    user_id: state.currentUserId,
+    entry_date: state.currentDay,
     site: site,
-    desc: document.getElementById("descInput").value.trim(),
-    start: document.getElementById("startInput").value,
-    finish: document.getElementById("finishInput").value,
-    lunch: parseFloat(document.getElementById("lunchInput").value) || 0,
-    notes: document.getElementById("notesInput").value.trim(),
-    hours: hours
-  };
+    description: document.getElementById("descInput").value.trim(),
+    start_time: document.getElementById("startInput").value,
+    finish_time: document.getElementById("finishInput").value,
+    lunch_mins: parseFloat(document.getElementById("lunchInput").value) || 0,
+    hours: hours,
+    notes: document.getElementById("notesInput").value.trim()
+  }, { onConflict: "user_id,entry_date" });
 
-  const weekData = getWeekData();
-  weekData[state.currentDay] = entry;
-  saveWeekData(weekData);
+  saveBtn.disabled = false;
 
-  sendDay(state.currentDay, entry);
+  if (error) { alert("Couldn't save: " + error.message); return; }
 
   document.getElementById("headerTitle").textContent = "";
   showWeek();
 }
 
-function sendDay(iso, entry) {
-  const d = new Date(iso + "T00:00:00");
-  const subject = "Timesheet — " + state.operative + " — " + fmtShort(d);
-  const body = fmtShort(d) + " " + d.getFullYear() + "\nOperative: " + state.operative +
-    "\nSite: " + entry.site +
-    "\nHours: " + fmtHM(entry.hours) + " (" + entry.start + "-" + entry.finish + ", " + entry.lunch + "m lunch)" +
-    (entry.desc ? "\nDescription: " + entry.desc : "") +
-    (entry.notes ? "\nNotes: " + entry.notes : "");
-
-  window.location.href = "mailto:?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body);
-}
-
 // Boot
-(function boot() {
-  const currentEmail = localStorage.getItem(storageKey("currentUser"));
-  if (currentEmail) {
-    const users = getUsers();
-    const user = users[currentEmail];
-    if (user) {
-      state.operative = user.firstName + " " + user.lastName;
-      init();
-      return;
-    }
+(async function boot() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) {
+    const meta = session.user.user_metadata || {};
+    state.operative = (meta.first_name || "") + " " + (meta.last_name || "");
+    state.currentUserId = session.user.id;
+    init();
+  } else {
+    showLogin();
   }
-  showLogin();
 })();
 </script>
 
