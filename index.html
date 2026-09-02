@@ -274,6 +274,22 @@
     font-size: 0.72rem;
     margin-top: 26px;
   }
+  #upd-banner {
+    display: none;
+    background: var(--orange);
+    color: #1a1200;
+    padding: 11px 14px;
+    font-size: 0.85rem;
+    font-weight: 800;
+    text-align: center;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+    animation: upd-pulse 2s ease-in-out infinite;
+  }
+  @keyframes upd-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.85; }
+  }
   .hidden { display: none !important; }
 
   /* Auth overlay — deliberately fixed-dark regardless of app theme, matching
@@ -388,6 +404,8 @@
 
 <div class="app">
 
+  <div id="upd-banner" onclick="applyUpdate()">New version available — tap to update</div>
+
   <header>
     <button class="back-link hidden" id="backBtn" onclick="showWeek()">&larr; Back</button>
     <div class="header-logo brand-logo-bg"></div>
@@ -426,11 +444,11 @@
       <div class="row-2">
         <div class="field">
           <label>Start (24hr)</label>
-          <input type="time" id="startInput" value="08:00" onchange="recalcHours()">
+          <input type="time" id="startInput" value="08:00" step="600" onchange="recalcHours()">
         </div>
         <div class="field">
           <label>Finish (24hr)</label>
-          <input type="time" id="finishInput" value="17:00" onchange="recalcHours()">
+          <input type="time" id="finishInput" value="17:00" step="600" onchange="recalcHours()">
         </div>
       </div>
 
@@ -891,6 +909,26 @@ async function saveDay() {
 
   document.getElementById("headerTitle").textContent = "";
   showWeek();
+}
+
+// ---------- Update banner ----------
+let swReg = null;
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").then(r => {
+    swReg = r;
+    r.addEventListener("updatefound", () => {
+      const w = r.installing;
+      w.addEventListener("statechange", () => {
+        if (w.state === "installed" && navigator.serviceWorker.controller) {
+          document.getElementById("upd-banner").style.display = "block";
+        }
+      });
+    });
+  }).catch(() => {});
+  navigator.serviceWorker.addEventListener("controllerchange", () => location.reload());
+}
+function applyUpdate() {
+  if (swReg && swReg.waiting) swReg.waiting.postMessage({ type: "SKIP_WAITING" });
 }
 
 // Boot
