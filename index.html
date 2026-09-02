@@ -10,9 +10,7 @@
 <style>
   :root {
     --navy: #0b3d6c;
-    --navy-ink: #0e2338;
     --orange: #dd7817;
-    --orange-ink: #7a3f0c;
     --green: #2e7d46;
     --green-dark: #235f36;
 
@@ -155,7 +153,7 @@
     font-variant-numeric: tabular-nums;
     opacity: 0.92;
   }
-  .send-btn, .save-btn, .primary-btn {
+  .save-btn, .primary-btn {
     width: 100%;
     border: none;
     border-radius: 8px;
@@ -168,11 +166,11 @@
     cursor: pointer;
     margin-top: 22px;
   }
-  .send-btn:active, .save-btn:active, .primary-btn:active { background: var(--green-dark); }
-  .send-btn:focus-visible, .save-btn:focus-visible, .primary-btn:focus-visible {
+  .save-btn:active, .primary-btn:active { background: var(--green-dark); }
+  .save-btn:focus-visible, .primary-btn:focus-visible {
     outline: 3px solid var(--focus-ring); outline-offset: 2px;
   }
-  .send-btn:disabled { background: #7f9f89; cursor: not-allowed; }
+  .save-btn:disabled { background: #7f9f89; cursor: not-allowed; }
 
   /* Day entry screen */
   .field { margin-bottom: 18px; }
