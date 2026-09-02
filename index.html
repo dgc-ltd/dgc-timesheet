@@ -720,17 +720,10 @@ async function loadWeekEntries(monday) {
   }
 }
 
-async function getSiteHistory() {
-  const hist = {};
-  DEFAULT_SITES.forEach(s => { hist[s] = 0; });
-  const { data } = await sb
-    .from("timesheet_entries")
-    .select("site")
-    .eq("user_id", state.currentUserId);
-  if (data) {
-    data.forEach(row => { hist[row.site] = (hist[row.site] || 0) + 1; });
-  }
-  return hist;
+async function getSiteList() {
+  const { data } = await sb.from("timesheet_sites").select("name").order("name");
+  if (data && data.length) return data.map(r => r.name);
+  return DEFAULT_SITES.slice();
 }
 
 // ---------- UI flow ----------
@@ -792,8 +785,7 @@ async function openDay(iso) {
 }
 
 async function populateSites(entry) {
-  const hist = await getSiteHistory();
-  const names = Object.keys(hist).sort((a,b) => hist[b]-hist[a]);
+  const names = await getSiteList();
   const sel = document.getElementById("siteSelect");
   sel.innerHTML = "";
   names.forEach(n => {
@@ -870,6 +862,12 @@ async function saveDay() {
   const hours = recalcHours();
   const saveBtn = document.getElementById("saveDayBtn");
   saveBtn.disabled = true;
+
+  if (newSite) {
+    try {
+      await sb.from("timesheet_sites").upsert({ name: newSite }, { onConflict: "name", ignoreDuplicates: true });
+    } catch (e) {}
+  }
 
   const entry = {
     user_id: state.currentUserId,
