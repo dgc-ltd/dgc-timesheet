@@ -401,12 +401,10 @@
     <button class="overlay-back" onclick="showLogin()">&larr; Back</button>
     <h2>Create user</h2>
     <div class="field">
-      <label>First name</label>
-      <input type="text" id="signupFirstName" placeholder="First name">
-    </div>
-    <div class="field">
-      <label>Last name</label>
-      <input type="text" id="signupLastName" placeholder="Last name">
+      <label>Your name</label>
+      <select id="signupNameSelect">
+        <option value="">Loading staff list...</option>
+      </select>
     </div>
     <div class="field">
       <label>Email</label>
@@ -430,6 +428,11 @@
 const SUPABASE_URL = "https://kvxixpkprviimrozkfgz.supabase.co";
 const SUPABASE_KEY = "sb_publishable_wIfFsbeoI-Oh220m4P0yOw_CSAhM6DI";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// Job Planner (WEBSITE/dgc-ballasalla) — separate Supabase project. Entries are
+// written through to its dgc_timesheets table so PMs see them there too.
+const PLANNER_URL = "https://vigdtpcgeqenznuakdwz.supabase.co";
+const PLANNER_KEY = "sb_publishable_nUG65QtsU2p1-hWpdUuaSQ_bF4G1EGQ";
 
 const DAY_NAMES = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -473,17 +476,37 @@ function showLogin() {
   document.getElementById("loginOverlay").classList.remove("hidden");
 }
 
-function showSignup() {
+async function showSignup() {
   document.getElementById("loginOverlay").classList.add("hidden");
   const err = document.getElementById("signupError");
   err.classList.add("hidden");
   err.textContent = "";
-  document.getElementById("signupFirstName").value = "";
-  document.getElementById("signupLastName").value = "";
   document.getElementById("signupEmail").value = "";
   document.getElementById("signupPassword").value = "";
   document.getElementById("signupPassword2").value = "";
   document.getElementById("signupOverlay").classList.remove("hidden");
+  await populateStaffNames();
+}
+
+async function populateStaffNames() {
+  const sel = document.getElementById("signupNameSelect");
+  sel.innerHTML = '<option value="">Loading staff list...</option>';
+  try {
+    const r = await fetch(
+      PLANNER_URL + "/rest/v1/dgc_staff?select=name&status=eq.Working&order=name",
+      { headers: { apikey: PLANNER_KEY } }
+    );
+    if (!r.ok) throw new Error("bad response");
+    const rows = await r.json();
+    sel.innerHTML = '<option value="">Select your name...</option>';
+    rows.forEach(row => {
+      const opt = document.createElement("option");
+      opt.value = row.name; opt.textContent = row.name;
+      sel.appendChild(opt);
+    });
+  } catch (e) {
+    sel.innerHTML = '<option value="">Couldn\'t load staff list — try again</option>';
+  }
 }
 
 function signupFail(msg) {
@@ -499,26 +522,25 @@ function loginFail(msg) {
 }
 
 async function doSignup() {
-  const firstName = document.getElementById("signupFirstName").value.trim();
-  const lastName = document.getElementById("signupLastName").value.trim();
+  const fullName = document.getElementById("signupNameSelect").value;
   const email = document.getElementById("signupEmail").value.trim().toLowerCase();
   const password = document.getElementById("signupPassword").value;
   const password2 = document.getElementById("signupPassword2").value;
 
-  if (!firstName || !lastName || !email || !password) { signupFail("Please fill in every field."); return; }
+  if (!fullName || !email || !password) { signupFail("Please fill in every field."); return; }
   if (password !== password2) { signupFail("Passwords don't match."); return; }
   if (password.length < 6) { signupFail("Password must be at least 6 characters."); return; }
 
   const { data, error } = await sb.auth.signUp({
     email, password,
-    options: { data: { first_name: firstName, last_name: lastName } }
+    options: { data: { full_name: fullName } }
   });
 
   if (error) { signupFail(error.message); return; }
 
   if (data.session) {
     document.getElementById("signupOverlay").classList.add("hidden");
-    state.operative = firstName + " " + lastName;
+    state.operative = fullName;
     state.currentUserId = data.user.id;
     init();
     return;
@@ -540,7 +562,7 @@ async function doLogin() {
 
   document.getElementById("loginError").classList.add("hidden");
   const meta = data.user.user_metadata || {};
-  state.operative = (meta.first_name || "") + " " + (meta.last_name || "");
+  state.operative = meta.full_name || "";
   state.currentUserId = data.user.id;
   document.getElementById("loginOverlay").classList.add("hidden");
   init();
@@ -722,6 +744,27 @@ function recalcHours() {
   return hours;
 }
 
+function pushToJobPlanner(entry) {
+  fetch(PLANNER_URL + "/rest/v1/rpc/upsert_dgc_timesheet", {
+    method: "POST",
+    headers: {
+      apikey: PLANNER_KEY,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      p_staff_name: state.operative,
+      p_work_date: entry.entry_date,
+      p_site: entry.site,
+      p_description: entry.description,
+      p_start_time: entry.start_time,
+      p_finish_time: entry.finish_time,
+      p_lunch_mins: entry.lunch_mins,
+      p_hours: entry.hours,
+      p_notes: entry.notes
+    })
+  }).catch(() => {});
+}
+
 async function saveDay() {
   const newSite = document.getElementById("newSiteInput").value.trim();
   let site = newSite || document.getElementById("siteSelect").value;
@@ -731,7 +774,7 @@ async function saveDay() {
   const saveBtn = document.getElementById("saveDayBtn");
   saveBtn.disabled = true;
 
-  const { error } = await sb.from("timesheet_entries").upsert({
+  const entry = {
     user_id: state.currentUserId,
     entry_date: state.currentDay,
     site: site,
@@ -741,11 +784,15 @@ async function saveDay() {
     lunch_mins: parseFloat(document.getElementById("lunchInput").value) || 0,
     hours: hours,
     notes: document.getElementById("notesInput").value.trim()
-  }, { onConflict: "user_id,entry_date" });
+  };
+
+  const { error } = await sb.from("timesheet_entries").upsert(entry, { onConflict: "user_id,entry_date" });
 
   saveBtn.disabled = false;
 
   if (error) { alert("Couldn't save: " + error.message); return; }
+
+  pushToJobPlanner(entry);
 
   document.getElementById("headerTitle").textContent = "";
   showWeek();
@@ -756,7 +803,7 @@ async function saveDay() {
   const { data: { session } } = await sb.auth.getSession();
   if (session) {
     const meta = session.user.user_metadata || {};
-    state.operative = (meta.first_name || "") + " " + (meta.last_name || "");
+    state.operative = meta.full_name || "";
     state.currentUserId = session.user.id;
     init();
   } else {
