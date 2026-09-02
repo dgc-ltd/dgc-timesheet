@@ -149,6 +149,11 @@
     .tile:active { transform: scale(0.98); }
   }
   .tile.filled { background: var(--navy); color: #fff; }
+  .tile.holiday {
+    background: repeating-linear-gradient(135deg, var(--tile-empty), var(--tile-empty) 10px, var(--border) 10px, var(--border) 20px);
+    color: var(--text-muted);
+    cursor: not-allowed;
+  }
   .tile.today { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--orange); }
   .tile:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
   .tile .day-hours {
@@ -539,6 +544,22 @@ const DAY_NAMES = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DEFAULT_SITES = ["Peel Breakwater", "Dandara - Ballasalla", "Living Hope", "Utmost", "NRV", "Minor Works"];
 
+// Isle of Man bank holidays — confirmed dates from gov.im (2026 only; add 2027
+// once the Isle of Man Government publishes it). These days are locked in the
+// week view so staff can't log hours on them and get paid twice.
+const BANK_HOLIDAYS = new Set([
+  "2026-01-01", // New Year's Day
+  "2026-04-03", // Good Friday
+  "2026-04-06", // Easter Monday
+  "2026-05-04", // Early May Bank Holiday
+  "2026-05-25", // Spring Bank Holiday
+  "2026-06-05", // TT Bank Holiday
+  "2026-07-06", // Tynwald Day
+  "2026-08-31", // Summer Bank Holiday
+  "2026-12-25", // Christmas Day
+  "2026-12-28"  // Substitute for Boxing Day
+]);
+
 let state = {
   operative: null,
   currentUserId: null,
@@ -773,16 +794,25 @@ async function renderWeek() {
     const d = new Date(monday); d.setDate(monday.getDate() + i);
     const iso = isoDate(d);
     const entry = state.weekEntries[iso];
+    const isHoliday = BANK_HOLIDAYS.has(iso);
     const btn = document.createElement("button");
-    btn.className = "tile" + (entry ? " filled" : "") + (isoDate(d) === isoDate(today) ? " today" : "");
-    btn.innerHTML = fmtShort(d) +
-      (entry ? '<span class="day-hours">' + fmtHM(entry.hours) + ' — ' + escapeHtml(entry.site) + '</span>' : "");
-    btn.onclick = () => openDay(iso);
+    btn.className = "tile" +
+      (isHoliday ? " holiday" : (entry ? " filled" : "")) +
+      (isoDate(d) === isoDate(today) ? " today" : "");
+    if (isHoliday) {
+      btn.innerHTML = fmtShort(d) + '<span class="day-hours">Bank Holiday</span>';
+      btn.disabled = true;
+    } else {
+      btn.innerHTML = fmtShort(d) +
+        (entry ? '<span class="day-hours">' + fmtHM(entry.hours) + ' — ' + escapeHtml(entry.site) + '</span>' : "");
+      btn.onclick = () => openDay(iso);
+    }
     tilesEl.appendChild(btn);
   }
 }
 
 async function openDay(iso) {
+  if (BANK_HOLIDAYS.has(iso)) return;
   state.currentDay = iso;
   document.getElementById("weekView").classList.add("hidden");
   document.getElementById("dayView").classList.remove("hidden");
