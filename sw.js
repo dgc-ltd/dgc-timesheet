@@ -3,7 +3,7 @@
 // shows an "Update ready" banner; tapping it activates the new SW and reloads.
 // Bump TIMESHEET_CACHE on every deploy so the update check actually fires.
 
-const TIMESHEET_CACHE = 'dgc-timesheet-v3';
+const TIMESHEET_CACHE = 'dgc-timesheet-v4';
 const PRECACHE = [
   './',
   'index.html'
