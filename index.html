@@ -424,9 +424,7 @@
     <div class="overlay-subtitle">Weekly Timesheet — Staff Login</div>
     <div class="field">
       <label>Username</label>
-      <select id="loginUsername">
-        <option value="">Select username...</option>
-      </select>
+      <input type="text" id="loginUsername" placeholder="Username">
     </div>
     <div class="field">
       <label>Password</label>
@@ -534,24 +532,10 @@ function escapeHtml(s) {
 
 // ---------- Auth ----------
 
-async function showLogin() {
+function showLogin() {
   document.getElementById("signupOverlay").classList.add("hidden");
   document.getElementById("loginError").classList.add("hidden");
   document.getElementById("loginOverlay").classList.remove("hidden");
-  await populateLoginUsernames();
-}
-
-async function populateLoginUsernames() {
-  const sel = document.getElementById("loginUsername");
-  const current = sel.value;
-  sel.innerHTML = '<option value="">Select username...</option>';
-  const { data } = await sb.from("timesheet_usernames").select("username").order("username");
-  (data || []).forEach(row => {
-    const opt = document.createElement("option");
-    opt.value = row.username; opt.textContent = row.username;
-    sel.appendChild(opt);
-  });
-  if (current) sel.value = current;
 }
 
 async function showSignup() {
@@ -631,9 +615,9 @@ async function doSignup() {
     return;
   }
 
-  document.getElementById("loginPassword").value = "";
-  await showLogin();
   document.getElementById("loginUsername").value = username;
+  document.getElementById("loginPassword").value = "";
+  showLogin();
 }
 
 async function doLogin() {
