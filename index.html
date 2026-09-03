@@ -508,7 +508,8 @@ let state = {
   operative: null,
   currentUserId: null,
   currentDay: null,
-  weekEntries: {}
+  weekEntries: {},
+  lastRenderedMonday: null
 };
 
 function pad(n) { return n < 10 ? "0" + n : "" + n; }
@@ -728,6 +729,7 @@ async function renderWeek() {
   const monday = getMonday(today);
   const friday = new Date(monday); friday.setDate(monday.getDate() + 4);
   document.getElementById("weekMeta").textContent = "Week ending " + fmtLong(friday);
+  state.lastRenderedMonday = isoDate(monday);
 
   await loadWeekEntries(monday);
 
@@ -904,6 +906,22 @@ if ("serviceWorker" in navigator) {
 function applyUpdate() {
   if (swReg && swReg.waiting) swReg.waiting.postMessage({ type: "SKIP_WAITING" });
 }
+
+// If the app was left open/backgrounded across a week boundary (e.g. a phone
+// home-screen icon idle over the weekend), catch up to the new week as soon
+// as it's brought back to the front — instead of showing stale tiles for a
+// week that's already ended.
+function checkForNewWeek() {
+  if (!state.currentUserId) return;
+  const weekViewVisible = !document.getElementById("weekView").classList.contains("hidden");
+  if (!weekViewVisible) return; // don't yank someone off an in-progress day entry
+  const nowMonday = isoDate(getMonday(new Date()));
+  if (nowMonday !== state.lastRenderedMonday) renderWeek();
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") checkForNewWeek();
+});
+window.addEventListener("focus", checkForNewWeek);
 
 // Boot
 (async function boot() {
