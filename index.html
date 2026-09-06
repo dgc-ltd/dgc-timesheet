@@ -705,8 +705,19 @@ async function loadWeekEntries(monday) {
 }
 
 async function getSiteList() {
-  const { data } = await sb.from("timesheet_sites").select("name").order("name");
-  if (data && data.length) return data.map(r => r.name);
+  const names = new Set();
+  try {
+    const r = await fetch(
+      PLANNER_URL + "/rest/v1/dgc_planner_jobs?select=name&order=name",
+      { headers: { apikey: PLANNER_KEY } }
+    );
+    if (r.ok) (await r.json()).forEach(row => { if (row.name) names.add(row.name); });
+  } catch (e) {}
+  try {
+    const { data } = await sb.from("timesheet_sites").select("name");
+    (data || []).forEach(row => names.add(row.name));
+  } catch (e) {}
+  if (names.size) return [...names].sort((a, b) => a.localeCompare(b));
   return DEFAULT_SITES.slice();
 }
 
@@ -782,6 +793,9 @@ async function populateSites(entry) {
   const names = await getSiteList();
   const sel = document.getElementById("siteSelect");
   sel.innerHTML = "";
+  const blank = document.createElement("option");
+  blank.value = ""; blank.textContent = "Select a site...";
+  sel.appendChild(blank);
   names.forEach(n => {
     const opt = document.createElement("option");
     opt.value = n; opt.textContent = n;
@@ -791,9 +805,11 @@ async function populateSites(entry) {
     if (![...sel.options].some(o => o.value === entry.site)) {
       const opt = document.createElement("option");
       opt.value = entry.site; opt.textContent = entry.site;
-      sel.insertBefore(opt, sel.firstChild);
+      sel.insertBefore(opt, blank.nextSibling);
     }
     sel.value = entry.site;
+  } else {
+    sel.value = "";
   }
 }
 
