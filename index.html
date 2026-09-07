@@ -393,7 +393,7 @@
     <section id="weekView">
       <div class="week-meta" id="weekMeta"></div>
       <div class="tiles" id="tiles"></div>
-      <button class="primary-btn" id="sendFortnightBtn" onclick="sendFortnight()">Send — I'm happy with this fortnight</button>
+      <button class="primary-btn" id="sendFortnightBtn" onclick="sendFortnight()">Complete</button>
       <p class="send-status" id="sendStatus"></p>
     </section>
 
@@ -833,7 +833,7 @@ async function refreshSendStatus() {
   const status = document.getElementById("sendStatus");
   btn.classList.remove("sent");
   btn.disabled = false;
-  btn.textContent = "Send — I'm happy with this fortnight";
+  btn.textContent = "Complete";
   status.textContent = "";
   try {
     const r = await fetch(
@@ -851,9 +851,9 @@ function markSent(confirmedAt) {
   const status = document.getElementById("sendStatus");
   btn.classList.add("sent");
   btn.disabled = true;
-  btn.textContent = "✓ Sent";
+  btn.textContent = "✓ Complete";
   const when = confirmedAt ? new Date(confirmedAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
-  status.textContent = when ? "Sent " + when : "Sent";
+  status.textContent = when ? "Completed " + when : "Completed";
 }
 
 async function sendFortnight() {
