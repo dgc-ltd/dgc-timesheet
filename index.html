@@ -856,6 +856,19 @@ function markSent(confirmedAt) {
   status.textContent = when ? "Completed " + when : "Completed";
 }
 
+// If someone edits a day after already marking the fortnight complete, the
+// confirmation is stale — clear it so the tick drops off the Job Planner's
+// grid and they have to press Complete again once they're actually done.
+async function uncompleteFortnight() {
+  try {
+    await fetch(
+      PLANNER_URL + "/rest/v1/dgc_timesheet_confirmations?staff_name=eq." +
+        encodeURIComponent(state.operative) + "&period_start=eq." + state.periodStart,
+      { method: "DELETE", headers: { apikey: PLANNER_KEY } }
+    );
+  } catch (e) {}
+}
+
 async function sendFortnight() {
   const btn = document.getElementById("sendFortnightBtn");
   btn.disabled = true;
@@ -1007,6 +1020,7 @@ async function saveDay() {
   if (error) { alert("Couldn't save: " + error.message); return; }
 
   pushToJobPlanner(entry);
+  await uncompleteFortnight();
 
   document.getElementById("headerTitle").textContent = "";
   showWeek();
