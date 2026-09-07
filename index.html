@@ -98,43 +98,11 @@
     flex: 1;
     padding: 18px 20px 40px;
   }
-  .period-nav {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 6px;
-  }
-  .period-nav-btn {
-    background: var(--input-bg);
-    border: 1px solid var(--input-border);
-    color: var(--text);
-    font-size: 0.85rem;
-    font-weight: 700;
-    border-radius: 8px;
-    padding: 8px 12px;
-    cursor: pointer;
-    font-family: inherit;
-    flex-shrink: 0;
-  }
-  .period-nav-btn:hover { border-color: var(--orange); color: var(--orange); }
-  .period-nav-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
   .week-meta {
     font-size: 0.95rem;
     color: var(--text-muted);
-    flex: 1;
     text-align: center;
-  }
-  .today-period-link {
-    display: block;
-    background: none;
-    border: none;
-    color: var(--link-accent);
-    font-size: 0.82rem;
-    font-weight: 700;
-    text-align: center;
-    margin: 0 0 14px;
-    cursor: pointer;
-    font-family: inherit;
+    margin-bottom: 14px;
   }
   .week-divider {
     font-size: 0.72rem;
@@ -410,12 +378,7 @@
 
     <!-- WEEK VIEW -->
     <section id="weekView">
-      <div class="period-nav">
-        <button class="period-nav-btn" onclick="shiftPeriod(-14)">&lsaquo; Back</button>
-        <div class="week-meta" id="weekMeta"></div>
-        <button class="period-nav-btn" onclick="shiftPeriod(14)">Next &rsaquo;</button>
-      </div>
-      <button class="today-period-link hidden" id="todayPeriodBtn" onclick="goToCurrentPeriod()">Jump to current fortnight</button>
+      <div class="week-meta" id="weekMeta"></div>
       <div class="tiles" id="tiles"></div>
     </section>
 
@@ -554,15 +517,27 @@ const BANK_HOLIDAYS = new Set([
 // Anchor is a confirmed real cycle start — every cycle since/before falls on
 // a 14-day multiple from this date. Don't adjust without checking with Ash,
 // this defines which days count toward which pay period.
+// There is deliberately no way to browse other fortnights from this app —
+// once a cycle locks, staff can no longer see or touch it (Ash: "dont let
+// them go back and forth"). The lock happens at 11pm on the Sunday that
+// ends the cycle, not midnight — payroll gets processed that Sunday night,
+// so the fresh fortnight is already live first thing Monday morning.
 const FORTNIGHT_ANCHOR = "2026-08-31";
+const LOCK_HOUR = 23; // 11pm on the closing Sunday
 
-function getPeriodStart(d) {
-  const anchor = new Date(FORTNIGHT_ANCHOR + "T12:00:00");
-  const date = new Date(isoDate(d) + "T12:00:00");
-  const diffDays = Math.round((date - anchor) / 86400000);
-  const n = Math.floor(diffDays / 14);
-  const start = new Date(anchor.getTime());
+function getPeriodStart(now) {
+  const anchor = new Date(FORTNIGHT_ANCHOR + "T00:00:00");
+  const diffDays = Math.floor((now - anchor) / 86400000);
+  let n = Math.floor(diffDays / 14);
+  let start = new Date(anchor.getTime());
   start.setDate(start.getDate() + n * 14);
+
+  const cutover = new Date(start);
+  cutover.setDate(cutover.getDate() + 13);
+  cutover.setHours(LOCK_HOUR, 0, 0, 0);
+  if (now.getTime() >= cutover.getTime()) {
+    start.setDate(start.getDate() + 14);
+  }
   return start;
 }
 
@@ -571,8 +546,7 @@ let state = {
   currentUserId: null,
   currentDay: null,
   weekEntries: {},
-  periodStart: null,          // ISO date (Monday) of the fortnight currently displayed
-  viewingCurrentPeriod: true
+  periodStart: null   // ISO date (Monday) of the current fortnight — always the live one
 };
 
 function pad(n) { return n < 10 ? "0" + n : "" + n; }
@@ -727,7 +701,6 @@ async function logout() {
   state.operative = null;
   state.currentUserId = null;
   state.periodStart = null;
-  state.viewingCurrentPeriod = true;
   document.getElementById("loginUsername").value = "";
   document.getElementById("loginPassword").value = "";
   showLogin();
@@ -789,34 +762,16 @@ async function showWeek() {
   document.getElementById("dayView").classList.add("hidden");
   document.getElementById("weekView").classList.remove("hidden");
   document.getElementById("backBtn").classList.add("hidden");
-  if (!state.periodStart) {
-    state.periodStart = isoDate(getPeriodStart(new Date()));
-    state.viewingCurrentPeriod = true;
-  }
   await renderWeek();
-}
-
-function shiftPeriod(days) {
-  const d = new Date(state.periodStart + "T12:00:00");
-  d.setDate(d.getDate() + days);
-  state.periodStart = isoDate(d);
-  state.viewingCurrentPeriod = (state.periodStart === isoDate(getPeriodStart(new Date())));
-  renderWeek();
-}
-
-function goToCurrentPeriod() {
-  state.periodStart = isoDate(getPeriodStart(new Date()));
-  state.viewingCurrentPeriod = true;
-  renderWeek();
 }
 
 async function renderWeek() {
   const today = new Date();
-  const periodStart = new Date(state.periodStart + "T12:00:00");
+  const periodStart = getPeriodStart(today);
+  state.periodStart = isoDate(periodStart);
   const periodEnd = new Date(periodStart); periodEnd.setDate(periodStart.getDate() + 13);
   document.getElementById("weekMeta").textContent =
     "Fortnight: " + fmtLong(periodStart) + " – " + fmtLong(periodEnd);
-  document.getElementById("todayPeriodBtn").classList.toggle("hidden", state.viewingCurrentPeriod);
 
   await loadWeekEntries(periodStart);
 
@@ -1013,12 +968,8 @@ function checkForNewWeek() {
   if (!state.currentUserId) return;
   const weekViewVisible = !document.getElementById("weekView").classList.contains("hidden");
   if (!weekViewVisible) return; // don't yank someone off an in-progress day entry
-  if (!state.viewingCurrentPeriod) return; // they navigated to a different fortnight on purpose
   const nowPeriod = isoDate(getPeriodStart(new Date()));
-  if (nowPeriod !== state.periodStart) {
-    state.periodStart = nowPeriod;
-    renderWeek();
-  }
+  if (nowPeriod !== state.periodStart) renderWeek();
 }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") checkForNewWeek();
