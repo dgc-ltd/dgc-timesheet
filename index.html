@@ -112,6 +112,19 @@
     color: var(--text-muted);
     margin: 4px 2px;
   }
+  #sendFortnightBtn { margin-top: 22px; }
+  #sendFortnightBtn.sent {
+    background: #16a34a;
+    box-shadow: none;
+    cursor: default;
+  }
+  #sendFortnightBtn.sent:hover { transform: none; box-shadow: none; }
+  .send-status {
+    text-align: center;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin: 8px 0 0;
+  }
   .tiles {
     display: flex;
     flex-direction: column;
@@ -380,6 +393,8 @@
     <section id="weekView">
       <div class="week-meta" id="weekMeta"></div>
       <div class="tiles" id="tiles"></div>
+      <button class="primary-btn" id="sendFortnightBtn" onclick="sendFortnight()">Send — I'm happy with this fortnight</button>
+      <p class="send-status" id="sendStatus"></p>
     </section>
 
     <!-- DAY VIEW -->
@@ -738,7 +753,7 @@ async function getSiteList() {
   const names = new Set();
   try {
     const r = await fetch(
-      PLANNER_URL + "/rest/v1/dgc_planner_jobs?select=name&order=name",
+      PLANNER_URL + "/rest/v1/dgc_planner_jobs?select=name&archived=eq.false&order=name",
       { headers: { apikey: PLANNER_KEY } }
     );
     if (r.ok) (await r.json()).forEach(row => { if (row.name) names.add(row.name); });
@@ -802,6 +817,63 @@ async function renderWeek() {
       btn.onclick = () => openDay(iso);
     }
     tilesEl.appendChild(btn);
+  }
+
+  await refreshSendStatus();
+}
+
+// The per-day hours themselves are already saved and pushed to the Job
+// Planner the moment each day is filled in — this "Send" is a separate,
+// one-time sign-off ("I'm happy this fortnight is correct") that shows up
+// as a green tick against this person's name on the Job Planner's Hours
+// grid. Not pressing it doesn't hold anything up — whatever's been logged
+// is still visible and payable, it's just an informational confirmation.
+async function refreshSendStatus() {
+  const btn = document.getElementById("sendFortnightBtn");
+  const status = document.getElementById("sendStatus");
+  btn.classList.remove("sent");
+  btn.disabled = false;
+  btn.textContent = "Send — I'm happy with this fortnight";
+  status.textContent = "";
+  try {
+    const r = await fetch(
+      PLANNER_URL + "/rest/v1/dgc_timesheet_confirmations?select=confirmed_at&staff_name=eq." +
+        encodeURIComponent(state.operative) + "&period_start=eq." + state.periodStart,
+      { headers: { apikey: PLANNER_KEY } }
+    );
+    const rows = r.ok ? await r.json() : [];
+    if (rows.length) markSent(rows[0].confirmed_at);
+  } catch (e) {}
+}
+
+function markSent(confirmedAt) {
+  const btn = document.getElementById("sendFortnightBtn");
+  const status = document.getElementById("sendStatus");
+  btn.classList.add("sent");
+  btn.disabled = true;
+  btn.textContent = "✓ Sent";
+  const when = confirmedAt ? new Date(confirmedAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+  status.textContent = when ? "Sent " + when : "Sent";
+}
+
+async function sendFortnight() {
+  const btn = document.getElementById("sendFortnightBtn");
+  btn.disabled = true;
+  try {
+    const r = await fetch(PLANNER_URL + "/rest/v1/dgc_timesheet_confirmations", {
+      method: "POST",
+      headers: {
+        apikey: PLANNER_KEY,
+        "Content-Type": "application/json",
+        Prefer: "resolution=ignore-duplicates"
+      },
+      body: JSON.stringify({ staff_name: state.operative, period_start: state.periodStart })
+    });
+    if (!r.ok) throw new Error("send failed");
+    markSent(new Date().toISOString());
+  } catch (e) {
+    btn.disabled = false;
+    document.getElementById("sendStatus").textContent = "Couldn't send — check your connection and try again.";
   }
 }
 
