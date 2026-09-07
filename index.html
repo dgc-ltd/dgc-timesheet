@@ -393,7 +393,7 @@
     <section id="weekView">
       <div class="week-meta" id="weekMeta"></div>
       <div class="tiles" id="tiles"></div>
-      <button class="primary-btn" id="sendFortnightBtn" onclick="sendFortnight()">Complete</button>
+      <button class="primary-btn" id="sendFortnightBtn" onclick="sendFortnight()">Send over</button>
       <p class="send-status" id="sendStatus"></p>
     </section>
 
@@ -833,7 +833,7 @@ async function refreshSendStatus() {
   const status = document.getElementById("sendStatus");
   btn.classList.remove("sent");
   btn.disabled = false;
-  btn.textContent = "Complete";
+  btn.textContent = "Send over";
   status.textContent = "";
   try {
     const r = await fetch(
