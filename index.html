@@ -104,19 +104,6 @@
     text-align: center;
     margin-bottom: 14px;
   }
-  #sendFortnightBtn { margin-top: 22px; }
-  #sendFortnightBtn.sent {
-    background: #16a34a;
-    box-shadow: none;
-    cursor: default;
-  }
-  #sendFortnightBtn.sent:hover { transform: none; box-shadow: none; }
-  .send-status {
-    text-align: center;
-    font-size: 0.82rem;
-    color: var(--text-muted);
-    margin: 8px 0 0;
-  }
   .tiles {
     display: flex;
     flex-direction: column;
@@ -385,8 +372,6 @@
     <section id="weekView">
       <div class="week-meta" id="weekMeta"></div>
       <div class="tiles" id="tiles"></div>
-      <button class="primary-btn" id="sendFortnightBtn" onclick="sendFortnight()">Send over</button>
-      <p class="send-status" id="sendStatus"></p>
     </section>
 
     <!-- DAY VIEW -->
@@ -434,7 +419,7 @@
 
   </main>
 
-  <div class="version">v20</div>
+  <div class="version">v21</div>
 </div>
 
 <!-- Name entry overlay -->
@@ -809,75 +794,36 @@ async function renderWeek() {
     tilesEl.appendChild(btn);
   }
 
-  await refreshSendStatus();
 }
 
-// The per-day hours themselves are already saved and pushed to the Job
-// Planner the moment each day is filled in — this "Send" is a separate,
-// one-time sign-off ("I'm happy this week is correct") that shows up
-// as a green tick against this person's name on the Job Planner's Hours
-// grid. Not pressing it doesn't hold anything up — whatever's been logged
-// is still visible and payable, it's just an informational confirmation.
-async function refreshSendStatus() {
-  const btn = document.getElementById("sendFortnightBtn");
-  const status = document.getElementById("sendStatus");
-  btn.classList.remove("sent");
-  btn.disabled = false;
-  btn.textContent = "Send over";
-  status.textContent = "";
-  try {
-    const r = await fetch(
-      PLANNER_URL + "/rest/v1/dgc_timesheet_confirmations?select=confirmed_at&staff_name=eq." +
-        encodeURIComponent(state.operative) + "&period_start=eq." + state.periodStart,
-      { headers: { apikey: PLANNER_KEY } }
-    );
-    const rows = r.ok ? await r.json() : [];
-    if (rows.length) markSent(rows[0].confirmed_at);
-  } catch (e) {}
-}
-
-function markSent(confirmedAt) {
-  const btn = document.getElementById("sendFortnightBtn");
-  const status = document.getElementById("sendStatus");
-  btn.classList.add("sent");
-  btn.disabled = true;
-  btn.textContent = "Completed";
-  const when = confirmedAt ? new Date(confirmedAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
-  status.textContent = when ? "Completed " + when : "Completed";
-}
-
-// If someone edits a day after already marking the week complete, the
-// confirmation is stale — clear it so the tick drops off the Job Planner's
-// grid and they have to press Complete again once they're actually done.
-async function uncompleteFortnight() {
+// Ash, 20 Sep 2026: "take away the complete button, it automatically
+// updates" — removed the manual "Send over"/"Completed" sign-off step
+// entirely. The green tick against this person's name on the Job
+// Planner's Hours grid now just reflects "hours are logged and in
+// sync", refreshed automatically on every day save, rather than a
+// one-time manual attestation someone had to remember to press (and
+// which used to go stale/get cleared the moment they edited a day
+// afterwards).
+// No anon UPDATE on this table (same platform quirk as everywhere else
+// in this stack) — refreshing the timestamp is delete-then-reinsert,
+// not a real update.
+async function autoConfirmPeriod() {
   try {
     await fetch(
       PLANNER_URL + "/rest/v1/dgc_timesheet_confirmations?staff_name=eq." +
         encodeURIComponent(state.operative) + "&period_start=eq." + state.periodStart,
       { method: "DELETE", headers: { apikey: PLANNER_KEY } }
     );
-  } catch (e) {}
-}
-
-async function sendFortnight() {
-  const btn = document.getElementById("sendFortnightBtn");
-  btn.disabled = true;
-  try {
-    const r = await fetch(PLANNER_URL + "/rest/v1/dgc_timesheet_confirmations", {
+    await fetch(PLANNER_URL + "/rest/v1/dgc_timesheet_confirmations", {
       method: "POST",
-      headers: {
-        apikey: PLANNER_KEY,
-        "Content-Type": "application/json",
-        Prefer: "resolution=ignore-duplicates"
-      },
-      body: JSON.stringify({ staff_name: state.operative, period_start: state.periodStart })
+      headers: { apikey: PLANNER_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        staff_name: state.operative,
+        period_start: state.periodStart,
+        confirmed_at: new Date().toISOString()
+      })
     });
-    if (!r.ok) throw new Error("send failed");
-    markSent(new Date().toISOString());
-  } catch (e) {
-    btn.disabled = false;
-    document.getElementById("sendStatus").textContent = "Couldn't send — check your connection and try again.";
-  }
+  } catch (e) {}
 }
 
 async function openDay(iso) {
@@ -1010,7 +956,7 @@ async function saveDay() {
   if (error) { alert("Couldn't save: " + error.message); return; }
 
   pushToJobPlanner(entry);
-  await uncompleteFortnight();
+  await autoConfirmPeriod();
 
   document.getElementById("headerTitle").textContent = "";
   showWeek();
