@@ -434,7 +434,7 @@
 
   </main>
 
-  <div class="version">v19</div>
+  <div class="version">v20</div>
 </div>
 
 <!-- Name entry overlay -->
@@ -1017,7 +1017,19 @@ async function saveDay() {
 }
 
 // ---------- Update banner ----------
+// Ash, 20 Sep 2026: a phone left open/backgrounded (or an iOS home-screen
+// icon, which is notoriously unreliable about re-checking on its own) could
+// sit on a stale version indefinitely — the browser's own automatic SW
+// update check is throttled and only fires around a page load, which
+// doesn't reliably happen just from bringing a suspended app back to
+// front. Force an explicit check (registration.update()) right away, and
+// again every time the app is actually brought to the foreground — same
+// moments checkForNewWeek() already hooks into below — instead of passively
+// waiting for the browser to notice on its own schedule.
 let swReg = null;
+function checkForUpdate() {
+  if (swReg) swReg.update().catch(() => {});
+}
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").then(r => {
     swReg = r;
@@ -1029,8 +1041,13 @@ if ("serviceWorker" in navigator) {
         }
       });
     });
+    checkForUpdate();
   }).catch(() => {});
   navigator.serviceWorker.addEventListener("controllerchange", () => location.reload());
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") checkForUpdate();
+  });
+  window.addEventListener("focus", checkForUpdate);
 }
 function applyUpdate() {
   if (swReg && swReg.waiting) swReg.waiting.postMessage({ type: "SKIP_WAITING" });
