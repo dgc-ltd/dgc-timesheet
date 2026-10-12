@@ -586,7 +586,7 @@ async function populateStaffNames() {
   sel.innerHTML = '<option value="">Loading staff list...</option>';
   try {
     const r = await fetch(
-      PLANNER_URL + "/rest/v1/dgc_staff?select=name&status=eq.Working&order=name",
+      PLANNER_URL + "/rest/v1/dgc_staff?select=name&status=in.(Working,Off%20Work)&order=name" /* staff off work (e.g. on leave, coming back) can set up their login too (Ash, 12 Oct 2026) */,
       { headers: { apikey: PLANNER_KEY } }
     );
     if (!r.ok) throw new Error("bad response");
