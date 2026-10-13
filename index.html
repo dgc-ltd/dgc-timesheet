@@ -429,29 +429,30 @@
 
       <div class="field">
         <label>Description of Work</label>
-        <textarea id="descInput" placeholder="e.g. Excavating trench, laying pipe..."></textarea>
+        <textarea id="descInput" placeholder="e.g. Excavating trench, laying pipe..." oninput="checkDesc()"></textarea>
+        <div class="auth-error hidden" id="descError">Write what you did today. You can't send without it.</div>
       </div>
 
       <div class="row-2">
         <div class="field">
-          <label>Start (24hr)</label>
-          <input type="time" id="startInput" value="08:00" step="600" onchange="recalcHours()">
+          <label>Start</label>
+          <select id="startInput" onchange="recalcHours()"></select>
         </div>
         <div class="field">
-          <label>Finish (24hr)</label>
-          <input type="time" id="finishInput" value="17:00" step="600" onchange="recalcHours()">
+          <label>Finish</label>
+          <select id="finishInput" onchange="recalcHours()"></select>
         </div>
       </div>
 
       <div class="field">
-        <label>Lunch (mins)</label>
+        <label>Lunch break (mins)</label>
         <input type="number" id="lunchInput" placeholder="e.g. 30" min="0" step="5" value="30" oninput="recalcHours()">
       </div>
 
       <div class="hours-display" id="hoursDisplay">Hours: 0h 0m</div>
 
       <div class="field">
-        <label>Notes</label>
+        <label>Notes (optional)</label>
         <textarea id="notesInput" placeholder="Optional"></textarea>
       </div>
 
@@ -473,7 +474,7 @@
     <div class="field"><label>What was it?</label><div class="chips" id="otherKinds"></div></div>
     <div class="field"><label>Hours</label><input type="number" id="otherHours" min="0" step="0.25" placeholder="e.g. 2"></div>
     <div class="field"><label>Who pays for these hours?</label><div class="chips" id="otherPayers"></div></div>
-    <div class="field"><label>Note (optional)</label><input type="text" id="otherNote" placeholder="e.g. Banksman course, morning"></div>
+    <div class="field"><label id="otherNoteLabel">Note (optional)</label><input type="text" id="otherNote" placeholder="e.g. Banksman course, morning"></div>
     <div class="auth-error hidden" id="otherError"></div>
     <button class="primary-btn" type="button" onclick="saveOther()">Save</button>
   </div>
@@ -812,7 +813,18 @@ async function getSiteList() {
       const n = alias[tsKey(n0)] || n0, k = tsKey(n);   // several names for one job show once, under the one name
       if (!seen.has(k)) { seen.add(k); out.push(n); }
     });
-    return out.sort((a, b) => a.localeCompare(b));
+    out.sort((a, b) => a.localeCompare(b));
+    // Most used sites first (Ash, 13 Oct 2026): how often each job was picked by anyone in the last 6 weeks.
+    state.siteUse = {};
+    try {
+      const r = await fetch(PLANNER_URL + "/rest/v1/rpc/ts_site_counts", { method: "POST", headers: { apikey: PLANNER_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ p_days: 42 }) });
+      if (r.ok) (await r.json()).forEach(row => {
+        if (/\btest\b/i.test(row.site || "")) return;
+        const k = tsKey(alias[tsKey(row.site)] || row.site);
+        state.siteUse[k] = (state.siteUse[k] || 0) + Number(row.n || 0);
+      });
+    } catch (e) {}
+    return out;
   }
   return DEFAULT_SITES.slice();
 }
@@ -949,13 +961,33 @@ async function openDay(iso) {
   document.getElementById("newSiteField").classList.add("hidden");
   document.getElementById("newSiteInput").value = "";
   document.getElementById("descInput").value = entry ? (entry.description || "") : "";
-  document.getElementById("startInput").value = entry ? entry.start_time : "08:00";
-  document.getElementById("finishInput").value = entry ? entry.finish_time : "17:00";
+  setTimeSelect("startInput", entry ? entry.start_time : "08:00");
+  setTimeSelect("finishInput", entry ? entry.finish_time : "17:00");
   document.getElementById("lunchInput").value = entry ? entry.lunch_mins : 30;
   document.getElementById("notesInput").value = entry ? (entry.notes || "") : "";
   await setupBillable(entry);
 
   recalcHours();
+  checkDesc();
+  document.getElementById("descError").classList.add("hidden");
+}
+// Times as 8:00 am / 5:00 pm, not 24-hour (Ash, 13 Oct 2026). Values stay "HH:MM" as before.
+function timeLabel(v) {
+  const [h, m] = v.split(":").map(Number);
+  return ((h % 12) || 12) + ":" + pad(m) + (h < 12 ? " am" : " pm");
+}
+function setTimeSelect(id, val) {
+  const sel = document.getElementById(id);
+  val = String(val || "").slice(0, 5);
+  if (!sel.options.length) {
+    for (let t = 5 * 60; t <= 22 * 60; t += 15) { const v = pad(Math.floor(t / 60)) + ":" + pad(t % 60); sel.add(new Option(timeLabel(v), v)); }
+  }
+  if (val && ![...sel.options].some(o => o.value === val)) {
+    const opt = new Option(timeLabel(val), val);
+    const after = [...sel.options].find(o => o.value > val);
+    sel.add(opt, after || null);
+  }
+  sel.value = val;
 }
 
 // Billable work (Harry's request, 13 Oct 2026): only people switched on in the database see the tick.
@@ -983,11 +1015,16 @@ async function populateSites(entry) {
   const blank = document.createElement("option");
   blank.value = ""; blank.textContent = "Select a site...";
   sel.appendChild(blank);
-  names.forEach(n => {
-    const opt = document.createElement("option");
-    opt.value = n; opt.textContent = n;
-    sel.appendChild(opt);
-  });
+  const use = state.siteUse || {};
+  const top = names.filter(n => use[tsKey(n)] > 0).sort((a, b) => use[tsKey(b)] - use[tsKey(a)] || a.localeCompare(b)).slice(0, 6);
+  const addGroup = (label, list) => {
+    if (!list.length) return;
+    const g = document.createElement("optgroup"); g.label = label;
+    list.forEach(n => { const opt = document.createElement("option"); opt.value = n; opt.textContent = n; g.appendChild(opt); });
+    sel.appendChild(g);
+  };
+  addGroup("Most used", top);
+  addGroup(top.length ? "All sites" : "Sites", names.filter(n => !top.includes(n)));
   if (entry) {
     if (![...sel.options].some(o => o.value === entry.site)) {
       const opt = document.createElement("option");
@@ -1051,7 +1088,20 @@ function pushToJobPlanner(entry) {
   }).catch(() => {});
 }
 
+// A description is needed before Save & Send (Ash, 13 Oct 2026).
+function checkDesc() {
+  const ok = !!document.getElementById("descInput").value.trim();
+  const b = document.getElementById("saveDayBtn");
+  b.style.opacity = ok ? "" : "0.55";
+  if (ok) document.getElementById("descError").classList.add("hidden");
+  return ok;
+}
 async function saveDay() {
+  if (!checkDesc()) {
+    document.getElementById("descError").classList.remove("hidden");
+    document.getElementById("descInput").focus();
+    return;
+  }
   const newSite = document.getElementById("newSiteInput").value.trim();
   let site = newSite || document.getElementById("siteSelect").value;
   if (!site) { alert("Please choose or add a site."); return; }
@@ -1111,7 +1161,7 @@ async function saveDay() {
 // that doesn't match the client sheet, and press "Send hours to be paid". Nothing here blocks, locks or
 // changes pay or the hours already saved (Ash: "even if they don't press send, still send it").
 // Records go to the Job Planner's dgc_timesheet_other_hours and dgc_timesheet_sent (dgc-ballasalla/staff/timesheet_other_hours.sql).
-const OTHER_KINDS = [["training", "Training course"], ["travel", "Travel"], ["yard", "Yard / workshop"], ["other_job", "Another job"], ["other", "Other"]];
+const OTHER_KINDS = [["training", "Training (whole time, incl. travel there)"], ["travel", "Travel"], ["yard", "Yard / workshop"], ["other_job", "Another job"], ["other", "Other"]];
 const OTHER_PAYERS = ["DGC", "Dandara", "Another client"];
 const other = { date: null, kind: "training", payer: "DGC" };
 function payWeekStart(now) {
@@ -1175,6 +1225,9 @@ async function markRight(d) {
   renderPayCard();
 }
 function drawOtherChips() {
+  const needNote = other.kind === "other_job" || other.kind === "other";
+  document.getElementById("otherNoteLabel").textContent = other.kind === "other_job" ? "Which job, and what did you do there?" : (needNote ? "What was it?" : "Note (optional)");
+  document.getElementById("otherNote").placeholder = other.kind === "other_job" ? "e.g. 36 Laurel Ave, unblocked the drain" : "e.g. Banksman course, morning";
   document.getElementById("otherKinds").innerHTML = OTHER_KINDS.map(([k, l]) => '<button type="button" class="chip-btn' + (other.kind === k ? " on" : "") + '" onclick="other.kind=\'' + k + '\';drawOtherChips()">' + l + "</button>").join("");
   document.getElementById("otherPayers").innerHTML = OTHER_PAYERS.map(p => '<button type="button" class="chip-btn' + (other.payer === p ? " on" : "") + '" onclick="other.payer=\'' + p + '\';drawOtherChips()">' + p + "</button>").join("");
 }
@@ -1192,6 +1245,9 @@ async function saveOther() {
   const hrs = parseFloat(document.getElementById("otherHours").value);
   const err = document.getElementById("otherError");
   if (!(hrs > 0) || hrs > 16) { err.textContent = "Put the number of hours, e.g. 2."; err.classList.remove("hidden"); return; }
+  if ((other.kind === "other_job" || other.kind === "other") && !document.getElementById("otherNote").value.trim()) {
+    err.textContent = other.kind === "other_job" ? "Say which job and what you did there." : "Say what it was."; err.classList.remove("hidden"); return;
+  }
   try {
     const r = await fetch(PLANNER_URL + "/rest/v1/dgc_timesheet_other_hours", { method: "POST", headers: { apikey: PLANNER_KEY, "Content-Type": "application/json" },
       body: JSON.stringify({ staff_name: state.operative, work_date: other.date, kind: other.kind, hours: hrs, payer: other.payer, note: document.getElementById("otherNote").value.trim() || null }) });
