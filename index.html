@@ -386,6 +386,15 @@
         </div>
       </div>
 
+      <div class="field hidden" id="billableField">
+        <label style="display:flex;align-items:center;gap:10px;text-transform:none;letter-spacing:0;font-size:1rem;">
+          <input type="checkbox" id="billableInput" onchange="onBillable()" style="width:24px;height:24px;flex:none;">
+          <span>This work is billable</span>
+        </label>
+        <input type="text" id="billableFor" class="hidden" placeholder="Who is it for? (so we can bill them)" style="margin-top:8px;">
+        <div style="font-size:.8rem;opacity:.75;margin-top:6px;">Tick this for call-outs and extra work that has not been priced. It is reported to the office each week.</div>
+      </div>
+
       <div class="field">
         <label>Description of Work</label>
         <textarea id="descInput" placeholder="e.g. Excavating trench, laying pipe..."></textarea>
@@ -730,6 +739,10 @@ async function loadWeekEntries(periodStart) {
   }
 }
 
+// One project, one name: same key as the database (ignores capitals, apostrophes, punctuation, "rd" and "st").
+function tsKey(p) {
+  return String(p || "").toLowerCase().replace(/['`\u2019]/g, "").replace(/[^a-z0-9]+/g, " ").replace(/\brd\b/g, "road").replace(/\bst\b/g, "street").trim().replace(/\s+/g, " ");
+}
 async function getSiteList() {
   const names = new Set();
   try {
@@ -743,7 +756,11 @@ async function getSiteList() {
     const { data } = await sb.from("timesheet_sites").select("name");
     (data || []).forEach(row => names.add(row.name));
   } catch (e) {}
-  if (names.size) return [...names].sort((a, b) => a.localeCompare(b));
+  if (names.size) {
+    const seen = new Set(), out = [];
+    [...names].sort((a, b) => a.localeCompare(b)).forEach(n => { const k = tsKey(n); if (!seen.has(k)) { seen.add(k); out.push(n); } });
+    return out;
+  }
   return DEFAULT_SITES.slice();
 }
 
@@ -843,8 +860,27 @@ async function openDay(iso) {
   document.getElementById("finishInput").value = entry ? entry.finish_time : "17:00";
   document.getElementById("lunchInput").value = entry ? entry.lunch_mins : 30;
   document.getElementById("notesInput").value = entry ? (entry.notes || "") : "";
+  await setupBillable(entry);
 
   recalcHours();
+}
+
+// Billable work (Harry's request, 13 Oct 2026): only people switched on in the database see the tick.
+async function setupBillable(entry) {
+  if (state.canBill === undefined || state.canBillFor !== state.currentUserId) {
+    state.canBill = false; state.canBillFor = state.currentUserId;
+    try {
+      const { data } = await sb.from("timesheet_usernames").select("can_mark_billable").eq("user_id", state.currentUserId).maybeSingle();
+      state.canBill = !!(data && data.can_mark_billable);
+    } catch (e) {}
+  }
+  document.getElementById("billableField").classList.toggle("hidden", !state.canBill);
+  document.getElementById("billableInput").checked = !!(entry && entry.billable);
+  document.getElementById("billableFor").value = entry ? (entry.billable_for || "") : "";
+  onBillable();
+}
+function onBillable() {
+  document.getElementById("billableFor").classList.toggle("hidden", !document.getElementById("billableInput").checked);
 }
 
 async function populateSites(entry) {
@@ -932,8 +968,18 @@ async function saveDay() {
   saveBtn.disabled = true;
 
   if (newSite) {
+    // Same project typed a different way (52 books road, 52 Books Rd): use the one saved name instead of making another.
     try {
-      await sb.from("timesheet_sites").upsert({ name: newSite }, { onConflict: "name", ignoreDuplicates: true });
+      const { data: chk } = await sb.rpc("ts_site_check", { p_name: newSite });
+      if (chk && chk.status === "exact") {
+        site = chk.name;
+      } else if (chk && chk.status === "near" && chk.near && chk.near.length) {
+        if (confirm('Is this the same as "' + chk.near[0] + '"?\n\nOK = yes, use "' + chk.near[0] + '".\nCancel = no, it is a new site called "' + newSite + '".')) site = chk.near[0];
+      }
+      if (site === newSite) {
+        const { data: nm } = await sb.rpc("ts_site_add", { p_name: newSite });
+        if (nm) site = nm;
+      }
     } catch (e) {}
   }
 
@@ -948,6 +994,10 @@ async function saveDay() {
     hours: hours,
     notes: document.getElementById("notesInput").value.trim()
   };
+  if (state.canBill) {
+    entry.billable = document.getElementById("billableInput").checked;
+    entry.billable_for = entry.billable ? (document.getElementById("billableFor").value.trim() || null) : null;
+  }
 
   const { error } = await sb.from("timesheet_entries").upsert(entry, { onConflict: "user_id,entry_date" });
 
