@@ -348,6 +348,25 @@
     text-decoration: none;
     cursor: pointer;
   }
+
+  /* Check your week, Other hours, Send hours to be paid (Ash, 13 Oct 2026) */
+  .pay-card { margin-top: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+  .pay-card h3 { margin: 0 0 4px; font-size: 1.05rem; }
+  .pay-card .muted, .other-hint { color: var(--text-muted); font-size: .85rem; }
+  .pay-total { display: flex; justify-content: space-between; align-items: center; margin: 10px 0; font-weight: 700; }
+  .pay-total b { color: #f59e0b; font-size: 1.3rem; }
+  .mismatch { border: 1px solid #f59e0b; background: rgba(245,158,11,.10); border-radius: 12px; padding: 10px 12px; margin-top: 8px; font-size: .92rem; }
+  .mismatch .acts { display: flex; gap: 8px; margin-top: 8px; }
+  .mismatch .acts button, .other-btn, .chip-btn { font: inherit; cursor: pointer; }
+  .mismatch .acts button { flex: 1; padding: 9px; border-radius: 10px; font-weight: 700; }
+  .btn-amber { background: #dd7817; color: #fff; border: 0; }
+  .btn-quiet { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
+  .other-btn { display: block; width: 100%; margin-top: 10px; padding: 12px; border-radius: 12px; border: 1px dashed #f59e0b; background: transparent; color: #f59e0b; font-weight: 700; }
+  .other-hint { text-align: center; margin-top: 6px; }
+  .sent-ok { color: #3fb950; font-weight: 700; }
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 6px; }
+  .chip-btn { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 20px; padding: 8px 12px; }
+  .chip-btn.on { background: #f59e0b; color: #111; border-color: #f59e0b; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -372,6 +391,7 @@
     <section id="weekView">
       <div class="week-meta" id="weekMeta"></div>
       <div class="tiles" id="tiles"></div>
+      <div class="pay-card hidden" id="payCard"></div>
       <button id="reportBtn" class="hidden" onclick="openReport()" style="margin-top:18px;width:100%;padding:14px;border-radius:12px;border:1px solid #f59e0b;background:transparent;color:#f59e0b;font-weight:700;font-size:1rem;">Weekly billable report (draft)</button>
     </section>
 
@@ -436,11 +456,27 @@
       </div>
 
       <button class="save-btn" id="saveDayBtn" onclick="saveDay()">Save &amp; Send</button>
+      <button class="other-btn" type="button" onclick="openOther(state.currentDay)">+ Other hours (training, travel, another job)</button>
+      <div class="other-hint">Only if part of your day wasn't on this site</div>
     </section>
 
   </main>
 
   <div class="version">v21</div>
+</div>
+
+<!-- Other hours (Ash, 13 Oct 2026) -->
+<div class="overlay hidden" id="otherOverlay">
+  <div class="overlay-card">
+    <button class="overlay-back" type="button" onclick="closeOther()">&larr; Back</button>
+    <h2 id="otherTitle">Other hours</h2>
+    <div class="field"><label>What was it?</label><div class="chips" id="otherKinds"></div></div>
+    <div class="field"><label>Hours</label><input type="number" id="otherHours" min="0" step="0.25" placeholder="e.g. 2"></div>
+    <div class="field"><label>Who pays for these hours?</label><div class="chips" id="otherPayers"></div></div>
+    <div class="field"><label>Note (optional)</label><input type="text" id="otherNote" placeholder="e.g. Banksman course, morning"></div>
+    <div class="auth-error hidden" id="otherError"></div>
+    <button class="primary-btn" type="button" onclick="saveOther()">Save</button>
+  </div>
 </div>
 
 <!-- Name entry overlay -->
@@ -867,7 +903,7 @@ async function renderWeek() {
     }
     tilesEl.appendChild(btn);
   }
-
+  renderPayCard();
 }
 
 // Ash, 20 Sep 2026: "take away the complete button, it automatically
@@ -1067,6 +1103,102 @@ async function saveDay() {
 
   document.getElementById("headerTitle").textContent = "";
   showWeek();
+}
+
+
+// ---------- Check your week, Other hours, Send hours to be paid (Ash, 13 Oct 2026) ----------
+// Dandara sheet hours come in on Friday; from Friday to Monday 6pm staff check their week, explain any day
+// that doesn't match the client sheet, and press "Send hours to be paid". Nothing here blocks, locks or
+// changes pay or the hours already saved (Ash: "even if they don't press send, still send it").
+// Records go to the Job Planner's dgc_timesheet_other_hours and dgc_timesheet_sent (dgc-ballasalla/staff/timesheet_other_hours.sql).
+const OTHER_KINDS = [["training", "Training course"], ["travel", "Travel"], ["yard", "Yard / workshop"], ["other_job", "Another job"], ["other", "Other"]];
+const OTHER_PAYERS = ["DGC", "Dandara", "Another client"];
+const other = { date: null, kind: "training", payer: "DGC" };
+function payWeekStart(now) {
+  const cur = getPeriodStart(now), dow = now.getDay(), h = now.getHours();
+  const prev = new Date(cur); prev.setDate(cur.getDate() - 7);
+  if (/[?&]check=1/.test(location.search)) return (dow === 1 || dow === 2 || dow === 3 || dow === 4) ? prev : cur;
+  if (dow === 5 || dow === 6 || (dow === 0 && h < LOCK_HOUR)) return cur;
+  if ((dow === 0 && h >= LOCK_HOUR) || (dow === 1 && h < 18)) return prev;
+  return null;
+}
+async function plannerGet(path) {
+  try { const r = await fetch(PLANNER_URL + "/rest/v1/" + path, { headers: { apikey: PLANNER_KEY } }); return r.ok ? await r.json() : []; } catch (e) { return []; }
+}
+const r2 = n => Math.round(n * 100) / 100;
+async function renderPayCard() {
+  const card = document.getElementById("payCard");
+  const ws = payWeekStart(new Date());
+  if (!ws || !state.operative) { card.classList.add("hidden"); return; }
+  const from = isoDate(ws), endD = new Date(ws); endD.setDate(ws.getDate() + 6); const to = isoDate(endD);
+  const nm = encodeURIComponent(state.operative);
+  const [entriesRes, dw, oth, sent] = await Promise.all([
+    sb.from("timesheet_entries").select("entry_date,hours,site").eq("user_id", state.currentUserId).gte("entry_date", from).lte("entry_date", to),
+    plannerGet("dgc_dayworks_entries?select=work_date,hours,billed_hours&staff_name=eq." + nm + "&work_date=gte." + from + "&work_date=lte." + to + "&removed_at=is.null"),
+    plannerGet("dgc_timesheet_other_hours?select=work_date,kind,hours,payer&staff_name=eq." + nm + "&work_date=gte." + from + "&work_date=lte." + to),
+    plannerGet("dgc_timesheet_sent?select=sent_at&staff_name=eq." + nm + "&period_start=eq." + from + "&order=sent_at.desc&limit=1")
+  ]);
+  const entries = (entriesRes && entriesRes.data) || [];
+  const ts = {}; entries.forEach(e => ts[e.entry_date] = Number(e.hours) || 0);
+  const sheet = {}; dw.forEach(d => sheet[d.work_date] = (sheet[d.work_date] || 0) + Number(d.billed_hours != null ? d.billed_hours : d.hours || 0));
+  const extra = {}, okDay = {}; oth.forEach(o => { if (o.kind === "all_correct") okDay[o.work_date] = true; else extra[o.work_date] = (extra[o.work_date] || 0) + Number(o.hours || 0); });
+  const mism = Object.keys(sheet).sort().filter(d => (d in ts) && !okDay[d] && Math.abs(r2((ts[d] || 0) - sheet[d] - (extra[d] || 0))) > 0.01);
+  state.payWeek = { from, total: r2(entries.reduce((a, e) => a + (Number(e.hours) || 0), 0)), unexplained: mism.length };
+  const dayLabel = d => fmtShort(new Date(d + "T12:00:00"));
+  let h = '<h3>Check your week</h3><div class="muted">' + fmtLong(ws) + " to " + fmtLong(endD) + "</div>";
+  h += '<div class="pay-total"><span>Your hours this week</span><b>' + fmtHM(state.payWeek.total) + "</b></div>";
+  mism.forEach(d => {
+    const diff = r2((ts[d] || 0) - sheet[d] - (extra[d] || 0));
+    h += '<div class="mismatch"><b>' + escapeHtml(dayLabel(d)) + ":</b> the Dandara sheet says " + fmtHM(sheet[d]) + ", you've put " + fmtHM(ts[d] || 0) +
+      (extra[d] ? " (plus " + fmtHM(extra[d]) + " other hours)" : "") + "." + (diff > 0 ? " Where were the other " + fmtHM(diff) + "?" : "") +
+      '<div class="acts"><button class="btn-amber" type="button" onclick="openOther(\'' + d + '\',' + (diff > 0 ? diff : 0) + ')">+ Add other hours</button>' +
+      '<button class="btn-quiet" type="button" onclick="markRight(\'' + d + '\')">My hours are right</button></div></div>';
+  });
+  h += '<button class="other-btn" type="button" onclick="openOther(null)">+ Other hours (training, travel, another job)</button>';
+  if (sent.length) h += '<div style="margin-top:12px;text-align:center" class="sent-ok">&#10003; Sent ' + escapeHtml(new Date(sent[0].sent_at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })) + '. You\'ll be paid Tuesday.</div>';
+  h += '<button class="save-btn" type="button" style="margin-top:12px" onclick="sendForPay()">' + (sent.length ? "Send again" : "Send hours to be paid") + "</button>";
+  h += '<div class="muted" style="margin-top:6px;text-align:center">Due by Monday 6pm. Once sent, your week is locked in and you\'re paid Tuesday.</div>';
+  card.innerHTML = h; card.classList.remove("hidden");
+}
+async function sendForPay() {
+  if (!state.payWeek) return;
+  if (state.payWeek.unexplained && !confirm(state.payWeek.unexplained + " day" + (state.payWeek.unexplained > 1 ? "s don't" : " doesn't") + " match the Dandara sheet. Send anyway?")) return;
+  try {
+    await fetch(PLANNER_URL + "/rest/v1/dgc_timesheet_sent", { method: "POST", headers: { apikey: PLANNER_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ staff_name: state.operative, period_start: state.payWeek.from, total_hours: state.payWeek.total, unexplained_days: state.payWeek.unexplained }) });
+  } catch (e) {}
+  renderPayCard();
+}
+async function markRight(d) {
+  try { await fetch(PLANNER_URL + "/rest/v1/dgc_timesheet_other_hours", { method: "POST", headers: { apikey: PLANNER_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ staff_name: state.operative, work_date: d, kind: "all_correct", note: "Said their hours are right" }) }); } catch (e) {}
+  renderPayCard();
+}
+function drawOtherChips() {
+  document.getElementById("otherKinds").innerHTML = OTHER_KINDS.map(([k, l]) => '<button type="button" class="chip-btn' + (other.kind === k ? " on" : "") + '" onclick="other.kind=\'' + k + '\';drawOtherChips()">' + l + "</button>").join("");
+  document.getElementById("otherPayers").innerHTML = OTHER_PAYERS.map(p => '<button type="button" class="chip-btn' + (other.payer === p ? " on" : "") + '" onclick="other.payer=\'' + p + '\';drawOtherChips()">' + p + "</button>").join("");
+}
+function openOther(date, hours) {
+  other.date = date || isoDate(new Date()); other.kind = "training"; other.payer = "DGC";
+  document.getElementById("otherTitle").textContent = "Other hours, " + fmtShort(new Date(other.date + "T12:00:00"));
+  document.getElementById("otherHours").value = hours ? r2(hours) : "";
+  document.getElementById("otherNote").value = "";
+  document.getElementById("otherError").classList.add("hidden");
+  drawOtherChips();
+  document.getElementById("otherOverlay").classList.remove("hidden");
+}
+function closeOther() { document.getElementById("otherOverlay").classList.add("hidden"); }
+async function saveOther() {
+  const hrs = parseFloat(document.getElementById("otherHours").value);
+  const err = document.getElementById("otherError");
+  if (!(hrs > 0) || hrs > 16) { err.textContent = "Put the number of hours, e.g. 2."; err.classList.remove("hidden"); return; }
+  try {
+    const r = await fetch(PLANNER_URL + "/rest/v1/dgc_timesheet_other_hours", { method: "POST", headers: { apikey: PLANNER_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ staff_name: state.operative, work_date: other.date, kind: other.kind, hours: hrs, payer: other.payer, note: document.getElementById("otherNote").value.trim() || null }) });
+    if (!r.ok) throw new Error("not saved");
+  } catch (e) { err.textContent = "Couldn't save. Check your signal and try again."; err.classList.remove("hidden"); return; }
+  closeOther();
+  renderPayCard();
 }
 
 // ---------- Update banner ----------
