@@ -1157,7 +1157,7 @@ async function saveDay() {
 
 
 // ---------- Check your week, Other hours, Send hours to be paid (Ash, 13 Oct 2026) ----------
-// Dandara sheet hours come in on Friday; from Friday to Monday 6pm staff check their week, explain any day
+// Dandara sheet hours come in on Friday; up to Monday 3pm staff check their week, explain any day
 // that doesn't match the client sheet, and press "Send hours to be paid". Nothing here blocks, locks or
 // changes pay or the hours already saved (Ash: "even if they don't press send, still send it").
 // Records go to the Job Planner's dgc_timesheet_other_hours and dgc_timesheet_sent (dgc-ballasalla/staff/timesheet_other_hours.sql).
@@ -1168,9 +1168,9 @@ function payWeekStart(now) {
   const cur = getPeriodStart(now), dow = now.getDay(), h = now.getHours();
   const prev = new Date(cur); prev.setDate(cur.getDate() - 7);
   if (/[?&]check=1/.test(location.search)) return (dow === 1 || dow === 2 || dow === 3 || dow === 4) ? prev : cur;
-  if (dow === 5 || dow === 6 || (dow === 0 && h < LOCK_HOUR)) return cur;
-  if ((dow === 0 && h >= LOCK_HOUR) || (dow === 1 && h < 18)) return prev;
-  return null;
+  // Ash, 13 Oct 2026: the Save and Send button sits under Sunday all week; Monday until 3pm it's for last week.
+  if ((dow === 0 && h >= LOCK_HOUR) || (dow === 1 && h < 15)) return prev;
+  return cur;
 }
 async function plannerGet(path) {
   try { const r = await fetch(PLANNER_URL + "/rest/v1/" + path, { headers: { apikey: PLANNER_KEY } }); return r.ok ? await r.json() : []; } catch (e) { return []; }
@@ -1205,10 +1205,11 @@ async function renderPayCard() {
       '<button class="btn-quiet" type="button" onclick="markRight(\'' + d + '\')">My hours are right</button></div></div>';
   });
   h += '<button class="other-btn" type="button" onclick="openOther(null)">+ Other hours (training, travel, another job)</button>';
-  if (sent.length) h += '<div style="margin-top:12px;text-align:center" class="sent-ok">&#10003; Sent ' + escapeHtml(new Date(sent[0].sent_at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })) + '. You\'ll be paid Tuesday.</div>';
-  h += '<button class="save-btn" type="button" style="margin-top:12px" onclick="sendForPay()">' + (sent.length ? "Send again" : "Send hours to be paid") + "</button>";
-  h += '<div class="muted" style="margin-top:6px;text-align:center">Due by Monday 6pm. Once sent, your week is locked in and you\'re paid Tuesday.</div>';
-  card.innerHTML = h; card.classList.remove("hidden");
+  let top = '';
+  top += '<button class="save-btn" type="button" style="margin-top:0" onclick="sendForPay()">' + (sent.length ? "Save and Send again" : "Save and Send (by Monday 3pm)") + "</button>";
+  top += '<div class="muted" style="margin-top:6px;text-align:center">Once sent, your week is locked in and you\'re paid Tuesday.</div>';
+  if (sent.length) top += '<div style="margin-top:8px;text-align:center" class="sent-ok">&#10003; Sent ' + escapeHtml(new Date(sent[0].sent_at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })) + '. You\'ll be paid Tuesday.</div>';
+  card.innerHTML = top + '<div style="margin-top:16px"></div>' + h; card.classList.remove("hidden");
 }
 async function sendForPay() {
   if (!state.payWeek) return;
