@@ -372,6 +372,18 @@
     <section id="weekView">
       <div class="week-meta" id="weekMeta"></div>
       <div class="tiles" id="tiles"></div>
+      <button id="reportBtn" class="hidden" onclick="openReport()" style="margin-top:18px;width:100%;padding:14px;border-radius:12px;border:1px solid #f59e0b;background:transparent;color:#f59e0b;font-weight:700;font-size:1rem;">Weekly billable report (draft)</button>
+    </section>
+
+    <!-- BILLABLE REPORT (draft, testing; directors only) -->
+    <section id="reportView" class="hidden">
+      <div style="background:#7c2d12;color:#fff;border-radius:10px;padding:10px 12px;font-weight:700;margin-bottom:10px;">DRAFT. Testing only. Nothing here has been sent to anyone.</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+        <button onclick="reportShift(-7)" style="padding:8px 12px;">&larr;</button>
+        <div id="reportWeek" style="flex:1;text-align:center;font-weight:700;"></div>
+        <button onclick="reportShift(7)" style="padding:8px 12px;">&rarr;</button>
+      </div>
+      <div id="reportBody"></div>
     </section>
 
     <!-- DAY VIEW -->
@@ -757,9 +769,14 @@ async function getSiteList() {
     (data || []).forEach(row => names.add(row.name));
   } catch (e) {}
   if (names.size) {
+    let alias = {};
+    try { const { data } = await sb.rpc("ts_aliases"); if (data) alias = data; } catch (e) {}
     const seen = new Set(), out = [];
-    [...names].sort((a, b) => a.localeCompare(b)).forEach(n => { const k = tsKey(n); if (!seen.has(k)) { seen.add(k); out.push(n); } });
-    return out;
+    [...names].sort((a, b) => a.localeCompare(b)).forEach(n0 => {
+      const n = alias[tsKey(n0)] || n0, k = tsKey(n);   // several names for one job show once, under the one name
+      if (!seen.has(k)) { seen.add(k); out.push(n); }
+    });
+    return out.sort((a, b) => a.localeCompare(b));
   }
   return DEFAULT_SITES.slice();
 }
@@ -772,11 +789,50 @@ function init() {
 }
 
 async function showWeek() {
+  document.getElementById("reportView").classList.add("hidden");
   document.getElementById("dayView").classList.add("hidden");
   document.getElementById("weekView").classList.remove("hidden");
   document.getElementById("backBtn").classList.add("hidden");
   await renderWeek();
 }
+
+// ---------- Weekly billable report: a draft for the people allowed to see it (13 Oct 2026) ----------
+async function loadCanReport() {
+  state.canReport = false; state.canReportFor = state.currentUserId;
+  try {
+    const { data } = await sb.from("timesheet_usernames").select("can_view_report").eq("user_id", state.currentUserId).maybeSingle();
+    state.canReport = !!(data && data.can_view_report);
+  } catch (e) {}
+  document.getElementById("reportBtn").classList.toggle("hidden", !state.canReport);
+}
+function openReport() {
+  const mon = getPeriodStart(new Date()); mon.setDate(mon.getDate() - 7);   // last full week
+  state.reportWeek = isoDate(mon);
+  document.getElementById("weekView").classList.add("hidden");
+  document.getElementById("reportView").classList.remove("hidden");
+  document.getElementById("backBtn").classList.remove("hidden");
+  renderReport();
+}
+function reportShift(n) { const d = new Date(state.reportWeek + "T12:00:00"); d.setDate(d.getDate() + n); state.reportWeek = isoDate(d); renderReport(); }
+async function renderReport() {
+  const start = new Date(state.reportWeek + "T12:00:00"), end = new Date(start); end.setDate(start.getDate() + 6);
+  document.getElementById("reportWeek").textContent = "Week " + fmtLong(start) + " to " + fmtLong(end);
+  const body = document.getElementById("reportBody"); body.textContent = "Loading...";
+  const { data, error } = await sb.rpc("billable_week_draft", { p_week_start: state.reportWeek });
+  if (error) { body.textContent = "Could not load: " + error.message; return; }
+  const rows = (data && data.rows) || [], esc2 = t => String(t == null ? "" : t).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const tot = rows.reduce((a, r) => a + Number(r.hours), 0);
+  let html = rows.length ? '<div style="margin-bottom:10px;"><b>' + rows.length + " project" + (rows.length > 1 ? "s" : "") + ", " + tot + " billable hours.</b></div>" : '<div style="opacity:.8;">No billable hours were marked this week.</div>';
+  rows.forEach(r => {
+    html += '<div style="border:1px solid #334155;border-radius:12px;padding:10px 12px;margin-bottom:10px;"><div style="display:flex;justify-content:space-between;gap:8px;"><b>' + esc2(r.site) + "</b><span>" + Number(r.hours) + " h</span></div>" +
+      '<div style="font-size:.8rem;margin:2px 0 6px;color:' + (r.priced ? "#22c55e" : "#f59e0b") + ';">' + (r.priced ? "Marked as priced" : "Not marked as priced yet") + "</div>" +
+      r.entries.map(e => '<div style="font-size:.85rem;padding:2px 0;">' + esc2(e.date) + ", " + esc2(e.who) + ", " + Number(e.hours) + " h" + (e.for ? ", for " + esc2(e.for) : "") + (e.description ? ": " + esc2(e.description) : "") + "</div>").join("") + "</div>";
+  });
+  const text = "DRAFT, not sent.\nBillable hours, week of " + fmtLong(start) + "\n\n" + (rows.length ? rows.map(r => "- " + r.site + ": " + Number(r.hours) + " h" + (r.priced ? "" : " (not priced)") + " (" + r.entries.map(e => e.who + " " + Number(e.hours) + "h" + (e.for ? " for " + e.for : "")).join("; ") + ")").join("\n") : "No billable hours were marked this week.");
+  html += '<div style="font-weight:700;margin:14px 0 6px;">What the weekly email would say (draft)</div><pre id="reportText" style="white-space:pre-wrap;background:#0f172a;border:1px solid #334155;border-radius:10px;padding:10px;font-size:.85rem;"></pre><button onclick="copyReport()" style="padding:10px 14px;margin-top:6px;">Copy the draft</button>';
+  body.innerHTML = html; document.getElementById("reportText").textContent = text;
+}
+function copyReport() { const t = document.getElementById("reportText").textContent; try { navigator.clipboard.writeText(t); alert("Copied. It has not been sent anywhere."); } catch (e) { alert(t); } }
 
 async function renderWeek() {
   const today = new Date();
@@ -787,6 +843,7 @@ async function renderWeek() {
     "Week: " + fmtLong(periodStart) + " – " + fmtLong(periodEnd);
 
   await loadWeekEntries(periodStart);
+  if (state.canReportFor !== state.currentUserId) await loadCanReport();
 
   const tilesEl = document.getElementById("tiles");
   tilesEl.innerHTML = "";
