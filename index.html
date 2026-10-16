@@ -381,6 +381,7 @@
     <h1 id="headerTitle"></h1>
     <div class="sub" id="headerSub">
       <span id="headerSubText"></span>
+      <button id="resetPwBtn" class="hidden" onclick="openResetPw()">Reset a password</button>
       <button onclick="logout()">Log out</button>
     </div>
   </header>
@@ -480,6 +481,23 @@
   </div>
 </div>
 
+<div class="overlay hidden" id="resetPwOverlay">
+  <div class="overlay-card">
+    <button class="overlay-back" onclick="closeResetPw()">&larr; Back</button>
+    <div class="overlay-subtitle">Reset someone's password</div>
+    <div class="field">
+      <label>Who</label>
+      <select id="resetPwWho"><option value="">Loading...</option></select>
+    </div>
+    <div class="field">
+      <label>New password (at least 6 characters)</label>
+      <input type="text" id="resetPwNew" placeholder="New password" autocapitalize="none" autocorrect="off">
+    </div>
+    <div class="auth-error hidden" id="resetPwMsg"></div>
+    <button class="primary-btn" onclick="doResetPw()">Set new password</button>
+  </div>
+</div>
+
 <!-- Name entry overlay -->
 <div class="overlay hidden" id="loginOverlay">
   <div class="overlay-card">
@@ -497,6 +515,7 @@
     <button class="primary-btn" onclick="doLogin()">Log In</button>
     <a class="auth-switch" onclick="showSignup()">Create user</a>
     <a class="auth-switch" onclick="forgotPassword()">Forgot password?</a>
+    <div style="font-size:12px;opacity:.75;margin-top:10px;text-align:center">iPhone tip: tap Share, then Add to Home Screen, and open it from there. It keeps you logged in.</div>
   </div>
 </div>
 
@@ -753,11 +772,8 @@ async function forgotPassword() {
   errEl.classList.remove("hidden");
   if (!email) { errEl.textContent = "We don't recognise that username. Type your email address above instead, then tap Forgot password."; return; }
 
-  const { error } = await sb.auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.origin + window.location.pathname
-  });
 
-  errEl.textContent = error ? ("Reset email not sent: " + error.message + ". Ask Ash or Brad to reset it for you.") : "Check your email (and junk folder) for a link to reset your password.";
+  errEl.textContent = "Ask Brad, John or Ash to set you a new password. They can do it in this app in a minute. Your username is: " + (await usernameFor(username)) + ".";
 }
 
 async function logout() {
@@ -780,6 +796,46 @@ sb.auth.onAuthStateChange((event) => {
     }
   }
 });
+
+
+// ---------- Manager password reset (16 Oct 2026) ----------
+// The Hours project has no custom mail server, so reset emails never reach staff.
+// Brad, John and Ash (public.ts_admins) can set a temporary password here instead.
+async function usernameFor(typed) {
+  if (!typed.includes("@")) {
+    const { data } = await sb.from("timesheet_usernames").select("username").ilike("username", typed.replace(/[%_]/g, "") + "%").limit(2);
+    if (data && data.length === 1) return data[0].username;
+  }
+  return typed;
+}
+async function checkResetPwAdmin() {
+  try {
+    const { data } = await sb.rpc("ts_is_admin");
+    document.getElementById("resetPwBtn").classList.toggle("hidden", data !== true);
+  } catch (e) {}
+}
+async function openResetPw() {
+  document.getElementById("resetPwOverlay").classList.remove("hidden");
+  document.getElementById("resetPwMsg").classList.add("hidden");
+  document.getElementById("resetPwNew").value = "";
+  const sel = document.getElementById("resetPwWho");
+  const { data, error } = await sb.rpc("ts_admin_people");
+  if (error) { sel.innerHTML = '<option value="">' + error.message + '</option>'; return; }
+  sel.innerHTML = '<option value="">Pick a person</option>' + (data || []).map(p =>
+    '<option value="' + p.username.replace(/"/g, "") + '">' + (p.full_name || "?") + " (" + p.username + ")</option>").join("");
+}
+function closeResetPw() { document.getElementById("resetPwOverlay").classList.add("hidden"); }
+async function doResetPw() {
+  const who = document.getElementById("resetPwWho").value;
+  const pw = document.getElementById("resetPwNew").value.trim();
+  const msg = document.getElementById("resetPwMsg");
+  msg.classList.remove("hidden");
+  if (!who) { msg.textContent = "Pick a person first."; return; }
+  if (pw.length < 6) { msg.textContent = "The new password must be at least 6 characters."; return; }
+  const { error } = await sb.rpc("ts_admin_reset_password", { p_username: who, p_new: pw });
+  msg.textContent = error ? ("Not changed: " + error.message)
+    : "Done. Tell them: username " + who + ", and the new password you just typed. They can log in straight away.";
+}
 
 // ---------- Data ----------
 
@@ -843,6 +899,7 @@ async function getSiteList() {
 
 function init() {
   document.getElementById("headerSubText").textContent = state.operative;
+  checkResetPwAdmin();
   showWeek();
 }
 
