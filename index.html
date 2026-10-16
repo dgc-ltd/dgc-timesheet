@@ -487,7 +487,7 @@
     <div class="overlay-subtitle">Weekly Timesheet — Staff Login</div>
     <div class="field">
       <label>Username</label>
-      <input type="text" id="loginUsername" placeholder="Username">
+      <input type="text" id="loginUsername" placeholder="Username or email" autocapitalize="none" autocorrect="off">
     </div>
     <div class="field">
       <label>Password</label>
@@ -708,16 +708,26 @@ async function doSignup() {
   showLogin();
 }
 
+// Find the login email from what was typed: an email works as it is; a username is matched exactly,
+// or, if only one username starts with what was typed (e.g. "swifty" for "swifty4278"), that one.
+async function findLoginEmail(typed) {
+  if (typed.includes("@")) return typed;
+  const { data: match } = await sb.from("timesheet_usernames").select("email").eq("username", typed).maybeSingle();
+  if (match) return match.email;
+  const { data: near } = await sb.from("timesheet_usernames").select("email").ilike("username", typed.replace(/[%_]/g, "") + "%").limit(2);
+  return (near && near.length === 1) ? near[0].email : null;
+}
+
 async function doLogin() {
   const username = document.getElementById("loginUsername").value.trim().toLowerCase();
   const password = document.getElementById("loginPassword").value;
 
   if (!username || !password) { loginFail("Enter your username and password."); return; }
 
-  const { data: match } = await sb.from("timesheet_usernames").select("email").eq("username", username).maybeSingle();
-  if (!match) { loginFail("Username or password is incorrect."); return; }
+  const email = await findLoginEmail(username);
+  if (!email) { loginFail("We don't recognise that username. Try your email address instead."); return; }
 
-  const { data, error } = await sb.auth.signInWithPassword({ email: match.email, password });
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
   if (error) { loginFail("Username or password is incorrect."); return; }
 
   document.getElementById("loginError").classList.add("hidden");
@@ -733,21 +743,21 @@ async function forgotPassword() {
   const errEl = document.getElementById("loginError");
 
   if (!username) {
-    errEl.textContent = "Type your username above first, then tap Forgot password.";
+    errEl.textContent = "Type your username or email above first, then tap Forgot password.";
     errEl.classList.remove("hidden");
     return;
   }
 
-  const { data: match } = await sb.from("timesheet_usernames").select("email").eq("username", username).maybeSingle();
+  const email = await findLoginEmail(username);
 
   errEl.classList.remove("hidden");
-  if (!match) { errEl.textContent = "Check your email for a link to reset your password."; return; }
+  if (!email) { errEl.textContent = "We don't recognise that username. Type your email address above instead, then tap Forgot password."; return; }
 
-  const { error } = await sb.auth.resetPasswordForEmail(match.email, {
+  const { error } = await sb.auth.resetPasswordForEmail(email, {
     redirectTo: window.location.origin + window.location.pathname
   });
 
-  errEl.textContent = error ? error.message : "Check your email for a link to reset your password.";
+  errEl.textContent = error ? ("Reset email not sent: " + error.message + ". Ask Ash or Brad to reset it for you.") : "Check your email (and junk folder) for a link to reset your password.";
 }
 
 async function logout() {
