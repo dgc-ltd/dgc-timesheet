@@ -413,6 +413,7 @@
       <div class="field">
         <label>Site</label>
         <select id="siteSelect" onchange="onSiteChange()"></select>
+        <div id="siteWarn" class="hidden" role="status" style="margin-top:8px;padding:10px 12px;border-radius:8px;border:1px solid #d29922;background:rgba(210,153,34,.14);font-size:.95rem;line-height:1.4"></div>
         <a class="add-site-link" id="addSiteLink" onclick="showAddSite()">+ Add new site</a>
         <div class="field hidden" id="newSiteField" style="margin-top:10px;">
           <input type="text" id="newSiteInput" placeholder="Type new site name">
@@ -1102,6 +1103,7 @@ async function populateSites(entry) {
   } else {
     sel.value = "";
   }
+  onSiteChange();
 }
 
 function showAddSite() {
@@ -1109,7 +1111,36 @@ function showAddSite() {
   document.getElementById("newSiteInput").focus();
 }
 
-function onSiteChange() {}
+// "Are you sure this is the right job?" (Ash, 18 Oct 2026). A gentle check, never a block:
+// the job hasn't started yet, isn't on the Job Planner, or nobody else has logged it in the last 3 weeks.
+// Yard, workshop, driving, training and minor works are never questioned.
+async function loadJobCheck() {
+  if (state.jobCheck) return state.jobCheck;
+  state.jobCheck = {};
+  try {
+    const r = await fetch(PLANNER_URL + "/rest/v1/rpc/ts_job_check", { method: "POST", headers: { apikey: PLANNER_KEY, "Content-Type": "application/json" }, body: "{}" });
+    if (r.ok) (await r.json()).forEach(j => { if (j.name) state.jobCheck[tsKey(j.name)] = j; });
+  } catch (e) {}
+  return state.jobCheck;
+}
+async function onSiteChange() {
+  const box = document.getElementById("siteWarn");
+  const site = document.getElementById("siteSelect").value;
+  box.classList.add("hidden");
+  if (!site || /workshop|yard|driving|training|minor works|stores|office/i.test(site)) return;
+  const jobs = await loadJobCheck();
+  if (!Object.keys(jobs).length) return;   // couldn't check: say nothing
+  if (document.getElementById("siteSelect").value !== site) return;
+  const j = jobs[tsKey(site)], today = new Date().toISOString().slice(0, 10);
+  let why = "";
+  if (!j) { if (!((state.siteUse || {})[tsKey(site)] > 1)) why = "This job isn't on the Job Planner, and hardly anyone has used it lately."; }
+  else if (j.start_date && j.start_date > today) why = "This job isn't due to start until " + new Date(j.start_date + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "long" }) + ".";
+  else if (j.status && !/running|live|started|on ?site/i.test(j.status)) why = "This job hasn't started yet.";
+  else if (!j.others_3wk) why = "Nobody else has put hours on this job in the last 3 weeks.";
+  if (!why) return;
+  box.innerHTML = "<b>Are you sure this is the right job?</b><br>" + why + " If it is, carry on. If not, pick the right one above.";
+  box.classList.remove("hidden");
+}
 
 function recalcHours() {
   const start = document.getElementById("startInput").value;
