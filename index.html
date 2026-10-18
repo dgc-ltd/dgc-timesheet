@@ -868,6 +868,8 @@ async function getSiteList() {
     );
     if (r.ok) (await r.json()).forEach(row => { if (row.name) names.add(row.name); });
   } catch (e) {}
+  // The Planner's jobs table is no longer open to the app (locked 14 Oct 2026), so take the live job names from the job check instead
+  try { Object.values(await loadJobCheck()).forEach(j => { if (j.name) names.add(j.name); }); } catch (e) {}
   try {
     const { data } = await sb.from("timesheet_sites").select("name");
     (data || []).forEach(row => names.add(row.name));
