@@ -593,11 +593,11 @@ const BANK_HOLIDAYS = new Set([
 // days count toward which pay period.
 // There is deliberately no way to browse other weeks from this app —
 // once a cycle locks, staff can no longer see or touch it (Ash: "dont let
-// them go back and forth"). The lock happens at 11pm on the Sunday that
-// ends the cycle, not midnight — payroll gets processed that Sunday night,
-// so the fresh week is already live first thing Monday morning.
+// them go back and forth"). Since 19 Oct 2026 (Ash) the lock happens at 3pm on
+// the Monday after the week, so they can finish and fix last week on Monday
+// morning (the same deadline as Save and Send); the new week opens at 3pm.
 const WEEK_ANCHOR = "2026-08-31";
-const LOCK_HOUR = 23; // 11pm on the closing Sunday
+const LOCK_HOUR = 15; // 3pm on the Monday after the week (Ash, 19 Oct 2026; was 11pm Sunday)
 
 function getPeriodStart(now) {
   const anchor = new Date(WEEK_ANCHOR + "T00:00:00");
@@ -606,11 +606,12 @@ function getPeriodStart(now) {
   let start = new Date(anchor.getTime());
   start.setDate(start.getDate() + n * 7);
 
+  // The week shown stays open until 3pm on the Monday after it (Ash, 19 Oct 2026):
+  // before 3pm on a Monday it's still last week; from 3pm the new week opens.
   const cutover = new Date(start);
-  cutover.setDate(cutover.getDate() + 6);
   cutover.setHours(LOCK_HOUR, 0, 0, 0);
-  if (now.getTime() >= cutover.getTime()) {
-    start.setDate(start.getDate() + 7);
+  if (now.getTime() < cutover.getTime()) {
+    start.setDate(start.getDate() - 7);
   }
   return start;
 }
@@ -1268,8 +1269,7 @@ function payWeekStart(now) {
   const cur = getPeriodStart(now), dow = now.getDay(), h = now.getHours();
   const prev = new Date(cur); prev.setDate(cur.getDate() - 7);
   if (/[?&]check=1/.test(location.search)) return (dow === 1 || dow === 2 || dow === 3 || dow === 4) ? prev : cur;
-  // Ash, 13 Oct 2026: the Save and Send button sits under Sunday all week; Monday until 3pm it's for last week.
-  if ((dow === 0 && h >= LOCK_HOUR) || (dow === 1 && h < 15)) return prev;
+  // Ash, 13 and 19 Oct 2026: the week now stays open until 3pm Monday, so the week on screen is always the one to send.
   return cur;
 }
 async function plannerGet(path) {
