@@ -593,11 +593,11 @@ const BANK_HOLIDAYS = new Set([
 // days count toward which pay period.
 // There is deliberately no way to browse other weeks from this app —
 // once a cycle locks, staff can no longer see or touch it (Ash: "dont let
-// them go back and forth"). Since 19 Oct 2026 (Ash) the lock happens at 3pm on
+// them go back and forth"). Since 19 Oct 2026 (Ash) the lock happens at 4pm on
 // the Monday after the week, so they can finish and fix last week on Monday
-// morning (the same deadline as Save and Send); the new week opens at 3pm.
+// morning (the same deadline as Save and Send); the new week opens at 4pm.
 const WEEK_ANCHOR = "2026-08-31";
-const LOCK_HOUR = 15; // 3pm on the Monday after the week (Ash, 19 Oct 2026; was 11pm Sunday)
+const LOCK_HOUR = 16; // 4pm on the Monday after the week (Ash, 19 Oct 2026; was 11pm Sunday, then 3pm)
 
 function getPeriodStart(now) {
   const anchor = new Date(WEEK_ANCHOR + "T00:00:00");
@@ -606,8 +606,8 @@ function getPeriodStart(now) {
   let start = new Date(anchor.getTime());
   start.setDate(start.getDate() + n * 7);
 
-  // The week shown stays open until 3pm on the Monday after it (Ash, 19 Oct 2026):
-  // before 3pm on a Monday it's still last week; from 3pm the new week opens.
+  // The week shown stays open until 4pm on the Monday after it (Ash, 19 Oct 2026):
+  // before 4pm on a Monday it's still last week; from 4pm the new week opens.
   const cutover = new Date(start);
   cutover.setHours(LOCK_HOUR, 0, 0, 0);
   if (now.getTime() < cutover.getTime()) {
@@ -1258,7 +1258,7 @@ async function saveDay() {
 
 
 // ---------- Check your week, Other hours, Send hours to be paid (Ash, 13 Oct 2026) ----------
-// Dandara sheet hours come in on Friday; up to Monday 3pm staff check their week, explain any day
+// Dandara sheet hours come in on Friday; up to Monday 4pm staff check their week, explain any day
 // that doesn't match the client sheet, and press "Send hours to be paid". Nothing here blocks, locks or
 // changes pay or the hours already saved (Ash: "even if they don't press send, still send it").
 // Records go to the Job Planner's dgc_timesheet_other_hours and dgc_timesheet_sent (dgc-ballasalla/staff/timesheet_other_hours.sql).
@@ -1269,7 +1269,7 @@ function payWeekStart(now) {
   const cur = getPeriodStart(now), dow = now.getDay(), h = now.getHours();
   const prev = new Date(cur); prev.setDate(cur.getDate() - 7);
   if (/[?&]check=1/.test(location.search)) return (dow === 1 || dow === 2 || dow === 3 || dow === 4) ? prev : cur;
-  // Ash, 13 and 19 Oct 2026: the week now stays open until 3pm Monday, so the week on screen is always the one to send.
+  // Ash, 13 and 19 Oct 2026: the week now stays open until 4pm Monday, so the week on screen is always the one to send.
   return cur;
 }
 async function plannerGet(path) {
@@ -1306,7 +1306,7 @@ async function renderPayCard() {
   });
   h += '<button class="other-btn" type="button" onclick="openOther(null)">+ Other hours (training, travel, another job)</button>';
   let top = '';
-  top += '<button class="save-btn" type="button" style="margin-top:0" onclick="sendForPay()">' + (sent.length ? "Save and Send again" : "Save and Send (by Monday 3pm)") + "</button>";
+  top += '<button class="save-btn" type="button" style="margin-top:0" onclick="sendForPay()">' + (sent.length ? "Save and Send again" : "Save and Send (by Monday 4pm)") + "</button>";
   top += '<div class="muted" style="margin-top:6px;text-align:center">Once sent, your week is locked in and you\'re paid Tuesday.</div>';
   if (sent.length) top += '<div style="margin-top:8px;text-align:center" class="sent-ok">&#10003; Sent ' + escapeHtml(new Date(sent[0].sent_at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })) + '. You\'ll be paid Tuesday.</div>';
   card.innerHTML = top + '<div style="margin-top:16px"></div>' + h; card.classList.remove("hidden");
