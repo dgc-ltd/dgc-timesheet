@@ -449,6 +449,7 @@
       <div class="field">
         <label>Lunch break (mins)</label>
         <input type="number" id="lunchInput" placeholder="e.g. 30" min="0" step="5" value="30" oninput="recalcHours()">
+        <div id="lunchNote" style="font-size:.8rem;color:#9aa;margin-top:4px">You can take up to an hour. Only 30 minutes comes off; DGC pays the rest.</div>
       </div>
 
       <div class="hours-display" id="hoursDisplay">Hours: 0h 0m</div>
@@ -465,7 +466,7 @@
 
   </main>
 
-  <div class="version">v21</div>
+  <div class="version">v34</div>
 </div>
 
 <!-- Other hours (Ash, 13 Oct 2026) -->
@@ -554,6 +555,9 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+// Ash, 20 Oct 2026: staff may take up to an hour for lunch; only 30 minutes comes off, DGC pays the rest.
+const LUNCH_OFF_MAX = 30;
+
 const SUPABASE_URL = "https://kvxixpkprviimrozkfgz.supabase.co";
 const SUPABASE_KEY = "sb_publishable_wIfFsbeoI-Oh220m4P0yOw_CSAhM6DI";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -1158,7 +1162,7 @@ function recalcHours() {
     const [fh, fm] = finish.split(":").map(Number);
     let diff = (fh*60+fm) - (sh*60+sm);
     if (diff < 0) diff += 24*60;
-    netMins = Math.max(0, diff - enteredLunch);
+    netMins = Math.max(0, diff - Math.min(enteredLunch, LUNCH_OFF_MAX));
     hours = netMins / 60;
   }
 

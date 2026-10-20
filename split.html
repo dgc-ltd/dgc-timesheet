@@ -456,6 +456,7 @@
       <div class="field">
         <label for="lunchInput">Lunch (mins)</label>
         <input type="number" id="lunchInput" placeholder="e.g. 30" min="0" step="5" value="30" oninput="onTimesChange()">
+        <div id="lunchNote" style="font-size:.8rem;color:#9aa;margin-top:4px">You can take up to an hour. Only 30 minutes comes off; DGC pays the rest.</div>
       </div>
 
       <div class="hours-display" id="hoursDisplay">Hours: 0h 0m</div>
@@ -577,6 +578,9 @@ function partsForSave(parts) {
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+// Ash, 20 Oct 2026: staff may take up to an hour for lunch; only 30 minutes comes off, DGC pays the rest.
+const LUNCH_OFF_MAX = 30;
+
 // DGC Timesheet, split day trial (13 Oct 2026). A separate page: the normal app (index.html) is unchanged.
 // Real mode uses the same sign-in, tables and Job Planner write-through as index.html.
 // Demo mode (?demo=1, or the button on the sign-in screen) runs on made-up data in this page only and never touches the network.
@@ -741,7 +745,7 @@ function demoSeed() {
   if (demo.seeded) return; demo.seeded = true;
   const mon = getPeriodStart(new Date()), day = n => { const d = new Date(mon); d.setDate(mon.getDate() + n); return isoDate(d); };
   const row = (uid, iso, site, desc, s, f, l) => ({ user_id: uid, entry_date: iso, site, description: desc, start_time: s, finish_time: f, lunch_mins: l, hours: 0, notes: "" });
-  const fix = e => { const [sh, sm] = e.start_time.split(":").map(Number), [fh, fm] = e.finish_time.split(":").map(Number); e.hours = ((fh * 60 + fm) - (sh * 60 + sm) - e.lunch_mins) / 60; return e; };
+  const fix = e => { const [sh, sm] = e.start_time.split(":").map(Number), [fh, fm] = e.finish_time.split(":").map(Number); e.hours = ((fh * 60 + fm) - (sh * 60 + sm) - Math.min(e.lunch_mins, LUNCH_OFF_MAX)) / 60; return e; };
   const d0 = day(0), d1 = day(1);
   const mondayParts = [
     { site: "Yard and Workshop", mins: 120, desc: "Loading the wagon and checking the straps" },
@@ -942,7 +946,7 @@ function dayMins() {
   const [sh, sm] = start.split(":").map(Number), [fh, fm] = finish.split(":").map(Number);
   let diff = (fh * 60 + fm) - (sh * 60 + sm);
   if (diff < 0) diff += 24 * 60;
-  return Math.max(0, Math.round(diff - lunch));
+  return Math.max(0, Math.round(diff - Math.min(lunch, LUNCH_OFF_MAX)));
 }
 function recalcHours() {
   const m = dayMins();
