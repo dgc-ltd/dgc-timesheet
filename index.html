@@ -465,7 +465,7 @@
 
   </main>
 
-  <div class="version">v35</div>
+  <div class="version">v36</div>
 </div>
 
 <!-- Other hours (Ash, 13 Oct 2026) -->
@@ -554,7 +554,9 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-// Lunch: whatever is typed in the box comes off (Ash, 22 Oct 2026: back to the original system; the v34 30-minute cap is removed).
+// Lunch (Ash, 22 Oct 2026): DGC pays the first 30 minutes of anyone's lunch above 30, the rest comes off.
+// Typed 0 = nothing off, 30 = 30 off, 45 or 60 = 30 off, 90 = 60 off, 120 = 90 off.
+function lunchOff(m) { m = Math.max(0, Number(m) || 0); return m <= 30 ? m : Math.max(30, m - 30); }
 
 const SUPABASE_URL = "https://kvxixpkprviimrozkfgz.supabase.co";
 const SUPABASE_KEY = "sb_publishable_wIfFsbeoI-Oh220m4P0yOw_CSAhM6DI";
@@ -1160,7 +1162,7 @@ function recalcHours() {
     const [fh, fm] = finish.split(":").map(Number);
     let diff = (fh*60+fm) - (sh*60+sm);
     if (diff < 0) diff += 24*60;
-    netMins = Math.max(0, diff - enteredLunch);
+    netMins = Math.max(0, diff - lunchOff(enteredLunch));
     hours = netMins / 60;
   }
 

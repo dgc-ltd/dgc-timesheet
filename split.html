@@ -577,7 +577,9 @@ function partsForSave(parts) {
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-// Lunch: whatever is typed in the box comes off (Ash, 22 Oct 2026: back to the original system; the v34 30-minute cap is removed).
+// Lunch (Ash, 22 Oct 2026): DGC pays the first 30 minutes of anyone's lunch above 30, the rest comes off.
+// Typed 0 = nothing off, 30 = 30 off, 45 or 60 = 30 off, 90 = 60 off, 120 = 90 off.
+function lunchOff(m) { m = Math.max(0, Number(m) || 0); return m <= 30 ? m : Math.max(30, m - 30); }
 
 // DGC Timesheet, split day trial (13 Oct 2026). A separate page: the normal app (index.html) is unchanged.
 // Real mode uses the same sign-in, tables and Job Planner write-through as index.html.
@@ -743,7 +745,7 @@ function demoSeed() {
   if (demo.seeded) return; demo.seeded = true;
   const mon = getPeriodStart(new Date()), day = n => { const d = new Date(mon); d.setDate(mon.getDate() + n); return isoDate(d); };
   const row = (uid, iso, site, desc, s, f, l) => ({ user_id: uid, entry_date: iso, site, description: desc, start_time: s, finish_time: f, lunch_mins: l, hours: 0, notes: "" });
-  const fix = e => { const [sh, sm] = e.start_time.split(":").map(Number), [fh, fm] = e.finish_time.split(":").map(Number); e.hours = ((fh * 60 + fm) - (sh * 60 + sm) - e.lunch_mins) / 60; return e; };
+  const fix = e => { const [sh, sm] = e.start_time.split(":").map(Number), [fh, fm] = e.finish_time.split(":").map(Number); e.hours = ((fh * 60 + fm) - (sh * 60 + sm) - lunchOff(e.lunch_mins)) / 60; return e; };
   const d0 = day(0), d1 = day(1);
   const mondayParts = [
     { site: "Yard and Workshop", mins: 120, desc: "Loading the wagon and checking the straps" },
@@ -944,7 +946,7 @@ function dayMins() {
   const [sh, sm] = start.split(":").map(Number), [fh, fm] = finish.split(":").map(Number);
   let diff = (fh * 60 + fm) - (sh * 60 + sm);
   if (diff < 0) diff += 24 * 60;
-  return Math.max(0, Math.round(diff - lunch));
+  return Math.max(0, Math.round(diff - lunchOff(lunch)));
 }
 function recalcHours() {
   const m = dayMins();
