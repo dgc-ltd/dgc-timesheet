@@ -465,7 +465,7 @@
 
   </main>
 
-  <div class="version">v36</div>
+  <div class="version">v37</div>
 </div>
 
 <!-- Other hours (Ash, 13 Oct 2026) -->
@@ -554,9 +554,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-// Lunch (Ash, 22 Oct 2026): DGC pays the first 30 minutes of anyone's lunch above 30, the rest comes off.
-// Typed 0 = nothing off, 30 = 30 off, 45 or 60 = 30 off, 90 = 60 off, 120 = 90 off.
-function lunchOff(m) { m = Math.max(0, Number(m) || 0); return m <= 30 ? m : Math.max(30, m - 30); }
+// Lunch: whatever is typed comes off, exactly as the app worked up to 20 Oct 2026 (v36's split rule withdrawn by Ash, 22 Oct).
+function lunchOff(m) { return Math.max(0, Number(m) || 0); }  // 22 Oct 2026 (Ash): back to how it ran up to 20 Oct: the lunch typed comes off in full
 
 const SUPABASE_URL = "https://kvxixpkprviimrozkfgz.supabase.co";
 const SUPABASE_KEY = "sb_publishable_wIfFsbeoI-Oh220m4P0yOw_CSAhM6DI";
