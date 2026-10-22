@@ -453,10 +453,13 @@
         </div>
       </div>
 
-      <div class="field">
-        <label for="lunchInput">Lunch (mins)</label>
-        <input type="number" id="lunchInput" placeholder="e.g. 30" min="0" step="5" value="30" oninput="onTimesChange()">
+      <div class="field" id="breakFields" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div><label for="breakInput">Morning break (mins)</label>
+        <input type="number" id="breakInput" min="0" step="5" value="30" oninput="onTimesChange()"></div>
+        <div><label for="lunchInput">Lunch break (mins)</label>
+        <input type="number" id="lunchInput" min="0" step="5" value="30" oninput="onTimesChange()"></div>
       </div>
+      <p id="breakNote" style="font-size:.82rem;opacity:.8;margin:-4px 0 10px;line-height:1.45">Breaks are 1 hour a day in total. 30 minutes is paid by DGC (if you're good boys). Put the breaks you actually took and the hours you actually worked.</p>
 
       <div class="hours-display" id="hoursDisplay">Hours: 0h 0m</div>
 
@@ -578,7 +581,23 @@ function partsForSave(parts) {
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 // Lunch: whatever is typed comes off, exactly as the app worked up to 20 Oct 2026 (v36's split rule withdrawn by Ash, 22 Oct).
-function lunchOff(m) { return Math.max(0, Number(m) || 0); }  // 22 Oct 2026 (Ash): back to how it ran up to 20 Oct: the lunch typed comes off in full
+// Breaks (Ash, 22 Oct 2026): a morning break and a lunch break, preset 30 each (1 hour in total).
+// DGC pays 30 minutes of breaks; anything above 30 comes off. 8 to 5 with 30 + 30 = 8.5 h.
+// Days saved before this (break_mins empty) keep the old rule: the lunch typed comes off in full.
+function breaksOff(brk, lunch, legacy) {
+  const b = Math.max(0, Number(brk) || 0), l = Math.max(0, Number(lunch) || 0);
+  return legacy ? l : Math.max(0, b + l - 30);
+}
+let legacyEntry = false;
+function showBreakMode(entry) {
+  legacyEntry = !!(entry && (entry.break_mins === null || entry.break_mins === undefined));
+  const bi = document.getElementById("breakInput"), note = document.getElementById("breakNote");
+  bi.value = entry ? (legacyEntry ? 0 : entry.break_mins) : 30;
+  bi.parentElement.style.display = legacyEntry ? "none" : "";
+  note.textContent = legacyEntry ? "Saved before 22 Oct, so the old rule applies to this day: the lunch typed comes off in full." : NOTE_TEXT;
+}
+const NOTE_TEXT = "Breaks are 1 hour a day in total. 30 minutes is paid by DGC (if you're good boys). Put the breaks you actually took and the hours you actually worked.";
+
 
 // DGC Timesheet, split day trial (13 Oct 2026). A separate page: the normal app (index.html) is unchanged.
 // Real mode uses the same sign-in, tables and Job Planner write-through as index.html.
@@ -713,7 +732,7 @@ const RealApi = {
       headers: { apikey: PLANNER_KEY, "Content-Type": "application/json" },
       body: JSON.stringify({
         p_staff_name: operative, p_work_date: entry.entry_date, p_site: entry.site, p_description: entry.description,
-        p_start_time: entry.start_time, p_finish_time: entry.finish_time, p_lunch_mins: entry.lunch_mins, p_hours: entry.hours, p_notes: entry.notes
+        p_start_time: entry.start_time, p_finish_time: entry.finish_time, p_lunch_mins: (entry.break_mins == null ? 0 : entry.break_mins) + (entry.lunch_mins || 0), p_hours: entry.hours, p_notes: entry.notes
       })
     }).catch(() => {});
   },
@@ -743,8 +762,8 @@ const demo = { person: null, entries: {}, parts: {}, sites: DEMO_SITES.map(s => 
 function demoSeed() {
   if (demo.seeded) return; demo.seeded = true;
   const mon = getPeriodStart(new Date()), day = n => { const d = new Date(mon); d.setDate(mon.getDate() + n); return isoDate(d); };
-  const row = (uid, iso, site, desc, s, f, l) => ({ user_id: uid, entry_date: iso, site, description: desc, start_time: s, finish_time: f, lunch_mins: l, hours: 0, notes: "" });
-  const fix = e => { const [sh, sm] = e.start_time.split(":").map(Number), [fh, fm] = e.finish_time.split(":").map(Number); e.hours = ((fh * 60 + fm) - (sh * 60 + sm) - lunchOff(e.lunch_mins)) / 60; return e; };
+  const row = (uid, iso, site, desc, s, f, l) => ({ user_id: uid, entry_date: iso, site, description: desc, start_time: s, finish_time: f, lunch_mins: l, break_mins: 30, hours: 0, notes: "" });
+  const fix = e => { const [sh, sm] = e.start_time.split(":").map(Number), [fh, fm] = e.finish_time.split(":").map(Number); e.hours = ((fh * 60 + fm) - (sh * 60 + sm) - breaksOff(e.break_mins, e.lunch_mins, false)) / 60; return e; };
   const d0 = day(0), d1 = day(1);
   const mondayParts = [
     { site: "Yard and Workshop", mins: 120, desc: "Loading the wagon and checking the straps" },
@@ -911,6 +930,7 @@ async function openDay(iso) {
   $("startInput").value = entry ? entry.start_time : "08:00";
   $("finishInput").value = entry ? entry.finish_time : "17:00";
   $("lunchInput").value = entry ? entry.lunch_mins : 30;
+  showBreakMode(entry);
   $("notesInput").value = entry ? (entry.notes || "") : "";
   setupBillable(entry);
   const saved = state.weekParts[iso] || [];
@@ -940,12 +960,12 @@ function populateSites(entry) {
 }
 function showAddSite() { $("newSiteField").classList.remove("hidden"); $("newSiteInput").focus(); }
 function dayMins() {
-  const start = $("startInput").value, finish = $("finishInput").value, lunch = parseFloat($("lunchInput").value) || 0;
+  const start = $("startInput").value, finish = $("finishInput").value, lunch = parseFloat($("lunchInput").value) || 0; const brk = parseFloat($("breakInput").value) || 0;
   if (!start || !finish) return 0;
   const [sh, sm] = start.split(":").map(Number), [fh, fm] = finish.split(":").map(Number);
   let diff = (fh * 60 + fm) - (sh * 60 + sm);
   if (diff < 0) diff += 24 * 60;
-  return Math.max(0, Math.round(diff - lunchOff(lunch)));
+  return Math.max(0, Math.round(diff - breaksOff(brk, lunch, legacyEntry)));
 }
 function recalcHours() {
   const m = dayMins();
@@ -1093,7 +1113,7 @@ async function saveDay() {
     const entry = {
       user_id: state.currentUserId, entry_date: state.currentDay, site: site, description: description,
       start_time: $("startInput").value, finish_time: $("finishInput").value,
-      lunch_mins: parseFloat($("lunchInput").value) || 0, hours: hours, notes: $("notesInput").value.trim()
+      lunch_mins: parseFloat($("lunchInput").value) || 0, break_mins: legacyEntry ? null : (parseFloat($("breakInput").value) || 0), hours: hours, notes: $("notesInput").value.trim()
     };
     if (state.canBill) {
       entry.billable = $("billableInput").checked;
