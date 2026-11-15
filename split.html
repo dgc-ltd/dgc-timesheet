@@ -532,7 +532,7 @@
 var SPLIT_MAX_PARTS = 6;
 var SOFT_WARN = "Add a line on what you did. It saves questions later.";
 function fmtMins(m) { m = Math.max(0, Math.round(m)); return Math.floor(m / 60) + "h " + (m % 60) + "m"; }
-function descTooShort(t) { return String(t || "").trim().length < 10; }
+function descTooShort(t) { t = String(t || "").trim(); return t.split(/\s+/).filter(w => w.length > 1).length < 4 || /^(work|working|works|groundworks?|general|site|labour(ing)?|same|same as yesterday|as above|as before|yard)$/i.test(t); } /* v39: four words or more (Ash, 15 Nov 2026) */
 function partsPlaced(parts) { return parts.reduce(function (a, p) { return a + (Number(p.mins) || 0); }, 0); }
 function splitProblems(parts, dayMins) {
   var out = [], seen = {};

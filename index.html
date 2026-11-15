@@ -432,7 +432,7 @@
       <div class="field">
         <label>Description of Work</label>
         <textarea id="descInput" placeholder="e.g. Excavating trench, laying pipe..." oninput="checkDesc()"></textarea>
-        <div class="auth-error hidden" id="descError">Write what you did today. You can't send without it.</div>
+        <div class="auth-error hidden" id="descError">Say what you did and where on site, in a few words (for example: dug and laid 12 m of 150 pipe, Area B). You can't send without it.</div>
       </div>
 
       <div class="row-2">
@@ -468,7 +468,7 @@
 
   </main>
 
-  <div class="version">v38</div>
+  <div class="version">v39</div>
 </div>
 
 <!-- Other hours (Ash, 13 Oct 2026) -->
@@ -1218,8 +1218,12 @@ function pushToJobPlanner(entry) {
 }
 
 // A description is needed before Save & Send (Ash, 13 Oct 2026).
+/* v39 (Ash, 15 Nov 2026: "flag anybody who might not be filling it in to as much detail"): a day needs a real description,
+   at least four words, not just "groundworks" or "same as yesterday" */
+const THIN_DESC = /^(work|working|works|groundworks?|general|site|labour(ing)?|same|same as yesterday|as above|as before|yard|n\/?a|-+|\.+)$/i;
+function descOk(t) { t = String(t || "").trim(); return t.split(/\s+/).filter(w => w.length > 1).length >= 4 && !THIN_DESC.test(t); }
 function checkDesc() {
-  const ok = !!document.getElementById("descInput").value.trim();
+  const ok = descOk(document.getElementById("descInput").value);
   const b = document.getElementById("saveDayBtn");
   b.style.opacity = ok ? "" : "0.55";
   if (ok) document.getElementById("descError").classList.add("hidden");
